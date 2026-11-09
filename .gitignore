@@ -1,0 +1,12 @@
+# Private project documentation and working material
+/private-docs/
+/.agent-workspace/
+
+# Local secrets and temporary editor files
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+.DS_Store
+*~
