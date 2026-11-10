@@ -10,4 +10,4 @@ Partners operate their own agents. Once funds leave controlled vaults for an ind
 
 Read the [Concept](docs/concept.md), [Architecture](docs/architecture.md), and [How It Works](docs/how-it-works.md), or start at the [documentation index](docs/README.md).
 
-Apodect is being designed. These documents explain intended behavior, not deployed enforcement or validated integrations.
+The [local contracts milestone](docs/contracts.md) implements independent Project lifecycles on the three networks. See [contract packages and checks](contracts/README.md) for development. The complete cross-chain flow remains the intended product architecture; shared budget synchronization and external delivery/evidence integrations are deferred.

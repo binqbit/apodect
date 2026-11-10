@@ -130,3 +130,17 @@ Every implementation must exercise the common scenarios below through its chain 
 | NEAR pending/failure/callback replay | Reserved until verified settlement; failure restores once |
 
 Solana verification must execute the compiled SBF program and SPL Token instructions. NEAR verification must execute compiled Wasm with an FT in sandbox, including failed asynchronous transfers. Ethereum verification must execute contract calls and token transfers in the EVM, with conservation/invariant cases. Formatting, compilation, and chain-runtime test results are reported separately from any future deployed verification.
+
+## Implementation status
+
+The local milestone is implemented and locally verified as of November 10, 2026. The subsequent [mechanics review](contract-mechanics-review.md) maps the agreed rules to code and tests, covers every local state, and identifies the contract changes required for cross-chain integration.
+
+| Package | Verification command from repository root | Verified result |
+| --- | --- | --- |
+| [Ethereum](../contracts/ethereum/README.md) | `make check-ethereum` | Formatting, compilation, 42 EVM tests: 39 unit/fuzz and 3 stateful invariants |
+| [Solana](../contracts/solana/README.md) | `make check-solana` | Formatting, SBF compilation, 24 compiled-program runtime tests |
+| [NEAR](../contracts/near/README.md) | `make check-near` | Formatting, three Wasm builds, 18 unit tests and 6 sandbox scenarios |
+
+The maintained suites exercise actual local token transfers and contract execution. Ethereum invariants each ran 128 sequences of 64 calls; fuzz tests used 256 cases. Solana tests execute the compiled SBF program with SPL Token instructions. NEAR tests execute Project/factory Wasm and a standards-based FT, including failed and concurrent asynchronous transfers and failed Project creation refunds. No tests were skipped.
+
+See the [package index](../contracts/README.md) for setup and shared commands, and [source architecture](contract-architecture.md) for responsibility boundaries and refactor compatibility checks. These results cover this local scope; they do not establish public deployment, production asset integration, an independent security audit, or cross-chain synchronization.
