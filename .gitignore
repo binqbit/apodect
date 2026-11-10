@@ -10,3 +10,14 @@
 *.key
 .DS_Store
 *~
+
+# Contract dependencies and generated build/test output
+/contracts/**/target/
+/contracts/**/node_modules/
+/contracts/ethereum/dependencies/
+/contracts/ethereum/out/
+/contracts/ethereum/cache/
+/contracts/ethereum/broadcast/
+/contracts/solana/.anchor/
+/contracts/solana/test-ledger/
+/contracts/near/artifacts/
