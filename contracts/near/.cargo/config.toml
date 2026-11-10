@@ -1,0 +1,3 @@
+[target.wasm32-unknown-unknown]
+# near-sdk >=5.27 selects NEAR host hashing/panic functions using this cfg.
+rustflags = ["--cfg", "near"]
