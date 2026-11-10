@@ -53,6 +53,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "apodect-near-localnet"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "near-sandbox",
+ "near-workspaces",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "apodect-near-project"
 version = "0.1.0"
 dependencies = [
@@ -2333,6 +2344,7 @@ dependencies = [
  "libc",
  "near-abi-client",
  "near-account-id",
+ "near-chain-configs",
  "near-crypto",
  "near-gas",
  "near-jsonrpc-client",
