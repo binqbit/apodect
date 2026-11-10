@@ -28,11 +28,13 @@ anchor-spl = { version = "=1.2.1", default-features = false, features = [
 [dev-dependencies]
 base64 = "=0.22.1"
 litesvm = "=0.18.2"
+serde_json = "=1.0.154"
 solana-keypair = "=3.1.2"
 solana-message = "=4.6.0"
 solana-signer = "=3.0.1"
-solana-transaction = "=4.3.0"
+solana-transaction = { version = "=4.3.0", features = ["wincode"] }
 solana-system-interface = { version = "=3.3.0", features = ["bincode"] }
+wincode = "=0.6.3"
 
 [profile.release]
 overflow-checks = true
