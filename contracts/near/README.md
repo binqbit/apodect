@@ -2,6 +2,18 @@
 
 This package implements the locally funded lifecycle in [the shared contract plan](../../docs/contracts.md). Each Workspace factory creates separate Project contract accounts. Each Project owns its own balance in one immutable NEP-141 token contract. There is no shared three-chain budget, remote command authorization, 1Click delivery or Read MPC integration in this milestone.
 
+## Persistent local development
+
+From the repository root, use `make local-up CHAIN=near`, `make local-check CHAIN=near`, and `make local-smoke CHAIN=near`. The [local development guide](../../docs/local-development.md) covers stopping, restarting, logs, ports, and explicit reset. This environment uses a persistent near-sandbox 2.14.0 node at `http://127.0.0.1:3030`, with its network listener on loopback port 24567. Stopping the node preserves deployments and account state.
+
+`scripts/localnet.sh` is the chain adapter; `localnet/` is a small Rust RPC client using the same pinned near-workspaces version as the integration suite. The client connects to the existing node through its validator key and never spawns or destroys a temporary test sandbox. Preparation builds all Wasm artifacts and the client, installs the pinned sandbox if needed, and initializes its home. It works without `.agent-workspace`; normal data lives in the root `.localnet/near` directory.
+
+Bootstrap creates owner, authority, agent, test-token, and Workspace accounts below `apodect.test.near`; the factory creates `p0.workspace.apodect.test.near`. Account names are stable, while keys are randomly generated and saved in private files. The Project and agent are registered with the test FT. Owner initially supplies 1,000 local test tokens, using six decimal places. `manifest.json` records addresses, RPC and genesis identity, and key-file paths without secret values. The test asset is the package's NEP-141 fixture, not public USDC.
+
+`check` makes read-only RPC calls to verify genesis identity, exact deployed Wasm bytes against local build artifacts, role keys, factory/Project configuration, and token backing. A changed contract build requires an explicit local reset and redeployment. Bootstrap with an existing manifest checks the existing deployment instead of funding it again. Interrupted setup resumes only when saved keys, code and initial Project funding agree; inconsistent partial state fails explicitly.
+
+Each smoke run requires an empty Project queue, funds another 60 test tokens, creates a fresh task, approves and fully allocates 60, withdraws 40, returns 15, releases 20, and finalizes with an expense of 25. It checks the resulting on-chain state and writes `last-smoke.json`. Repeated smoke runs create distinct tasks. The owner's retained test-token supply funds these transactions; token balances and completed tasks remain after restart.
+
 ## Build and verify
 
 Requirements: Linux x86-64 or a supported NEAR sandbox platform, Rust 1.99.0, the `wasm32-unknown-unknown` target, and standard native Rust build tools. Initial dependency/sandbox installation needs internet access. No credentials or public-network access are used by tests.

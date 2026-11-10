@@ -11,3 +11,5 @@ Partners operate their own agents. Once funds leave controlled vaults for an ind
 Read the [Concept](docs/concept.md), [Architecture](docs/architecture.md), and [How It Works](docs/how-it-works.md), or start at the [documentation index](docs/README.md).
 
 The [local contracts milestone](docs/contracts.md) implements independent Project lifecycles on the three networks. See [contract packages and checks](contracts/README.md) for development. The complete cross-chain flow remains the intended product architecture; shared budget synchronization and external delivery/evidence integrations are deferred.
+
+Run `make local-up` to start persistent Ethereum, Solana and NEAR development nodes with deployed contracts, test tokens and funded actors. Use `make local-smoke` to exercise them through RPC and `make local-down` to stop them while retaining state. See [local development](docs/local-development.md) for prerequisites, endpoints and reset commands.

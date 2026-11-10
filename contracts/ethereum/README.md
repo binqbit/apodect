@@ -17,6 +17,27 @@ From the repository root:
 
 The scripts select this package explicitly with `FOUNDRY_ROOT`. An installed solc 0.8.33 is used when available; otherwise Foundry obtains the version pinned in `foundry.toml`. `FOUNDRY_SOLC` can select an existing compatible compiler executable. Dependencies require network access on the first installation. OpenZeppelin 5.6.1 and forge-std 1.17.0 are pinned to exact upstream Git revisions in `soldeer.toml` and `soldeer.lock`; `dependencies/`, `out/`, and `cache/` are regenerable.
 
+## Persistent local environment
+
+The [local development guide](../../docs/local-development.md) provides the shared lifecycle commands. From the repository root:
+
+```sh
+make local-up CHAIN=ethereum
+make local-check CHAIN=ethereum
+make local-smoke CHAIN=ethereum
+make local-down CHAIN=ethereum
+```
+
+This starts native Anvil at `http://127.0.0.1:8545`, chain ID `31337`, using the Cancun EVM. The adapter deploys a freely mintable six-decimal `LocalUSDC`, the real `WorkspaceRegistry`, and one Project funded with 10,000 local USDC. Owner, authority, and agent use separate generated accounts with local ETH for gas. `script/LocalUSDC.s.sol` is a development asset; it has no production deployment role.
+
+State and deployment metadata live under `.localnet/ethereum/`. `manifest.json` contains contract addresses, role addresses, key-file paths, and compiled/deployed code fingerprints. Keys are encrypted Foundry keystores; their local password file and keystores have mode `0600`. They are never printed. Anvil exposes no default accounts and binds only to loopback. The initial state contains a random marker account that the adapter checks before signing, so another Anvil instance cannot be mistaken for this environment.
+
+`local-check` reads chain state and checks the marker, chain ID, exact compiled/deployed contract identity, registry binding, token, roles and actual custody. `local-smoke` creates a fresh task in the funded Project, approves and allocates 60 USDC, withdraws 40, returns 15, releases the controlled 20, and finalizes with a 25 USDC expense. It asserts token balances and closed rights. Repeating smoke creates another task; it requires an empty approval queue so it cannot bypass work created during development. If needed, it replenishes the Project using the local test token.
+
+Anvil persists state every second and on graceful shutdown. Restart preserves addresses, keys, balances and task history. A changed contract artifact fails verification and requires an explicit environment reset/redeployment. An interrupted bootstrap without a complete manifest also requires reset; the adapter does not silently repeat an uncertain deployment.
+
+`scripts/localnet.sh` implements `prepare`, `serve`, `bootstrap`, `check`, and `smoke` for the shared manager. It requires an absolute `APODECT_LOCALNET_DIR` and accepts `APODECT_RPC_PORT` and matching `APODECT_RPC_URL`; only an HTTP `127.0.0.1` endpoint is accepted. `serve` executes Anvil in the foreground. The adapter needs Python 3 and the same Foundry/Nix toolchain as the checks, and has no private-workspace dependency. The persistence format follows the pinned Anvil [serialized-state implementation](https://github.com/foundry-rs/foundry/blob/v1.7.1/crates/anvil/src/eth/backend/db.rs) and its [state-loading options](https://foundry-rs.github.io/foundry/anvil/cmd/struct.NodeArgs.html).
+
 ## Contracts
 
 `WorkspaceRegistry` binds one exact six-decimal token address. A signer creates a Workspace and becomes its immutable owner. Only that owner can create its Projects; each creation increments that Workspace's Project nonce and deploys a separate `ProjectVault` using CREATE2. The registry records `(workspaceId, projectNonce) → project address` and never holds Project funds.

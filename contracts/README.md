@@ -11,6 +11,16 @@ Three implementations of the [local Project lifecycle](../docs/contracts.md), wi
 Install the prerequisites documented by each package. From the repository root:
 
 ```sh
+make local-up
+make local-smoke
+make local-down
+```
+
+These commands manage persistent native development nodes, deployed contracts, local test assets and funded actors. Select one chain with `CHAIN=ethereum`, `CHAIN=solana` or `CHAIN=near`. See [local development](../docs/local-development.md) for installation, RPC endpoints, manifests, state persistence and reset instructions.
+
+The independent contract test suites remain available:
+
+```sh
 make check-ethereum
 make check-solana
 make check-near
@@ -24,4 +34,4 @@ The package READMEs document interfaces, account requirements, chain-specific as
 
 [Source architecture](../docs/contract-architecture.md) explains module responsibilities, the review decisions, and compatibility checks for changes to the implementation structure.
 
-The contracts in this milestone operate independent local budgets. Cross-chain synchronization, remote authorization, 1Click, Read MPC, backend/UI, and deployed verification remain subsequent work.
+The contracts in this milestone operate independent local budgets. Cross-chain synchronization, remote authorization, 1Click, Read MPC, backend/UI, and public deployment verification remain subsequent work.
