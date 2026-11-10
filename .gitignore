@@ -1,6 +1,7 @@
 # Private project documentation and working material
 /private-docs/
 /.agent-workspace/
+/.localnet/
 
 # Local secrets and temporary editor files
 .env
