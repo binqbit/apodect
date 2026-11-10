@@ -1,0 +1,8 @@
+[features]
+resolution = true
+
+[programs.localnet]
+apodect_solana = "9HLdesoinPvKWr56HRfpbGL9M8yKWzzBFNAr4rbZLkQP"
+
+[provider]
+cluster = "Localnet"
