@@ -208,6 +208,72 @@ fn cannot_bypass_large_fifo_head() {
 }
 
 #[test]
+fn rejection_preserves_queue_until_confirmed_and_recovers_after_proven_failure() {
+    for invalidation in [false, true] {
+        let mut c = fixture();
+        request(&mut c, 0, 60);
+        request(&mut c, 1, 20);
+        context("authority");
+        let initial_rejection = word(&c.reject(hex(&uint(1)), hex(&uint(0)), 1000));
+        let initial = c.commands.get(&initial_rejection).unwrap();
+        let mut failed = snapshot(1, 4, 100);
+        failed.words[32] = initial_rejection;
+        failed.words[33] = initial.command.digest();
+        failed.words[34] = uint(action::REJECT);
+        failed.words[35] = uint(command_state::FAILED);
+        c.consume(failed);
+        assert_eq!(
+            c.get_request(hex(&uint(1)), hex(&uint(0)))["status"],
+            "Pending"
+        );
+
+        c.approve(hex(&uint(1)), hex(&uint(0)));
+        c.approve(hex(&uint(1)), hex(&uint(1)));
+        let rejection = word(&c.reject(hex(&uint(1)), hex(&uint(0)), 1000));
+        assert_eq!(c.get_queue_head()["status"], "Rejecting");
+        assert_eq!(
+            c.advance_queue(),
+            0,
+            "unconfirmed rejection cannot release priority"
+        );
+
+        let mut proof = snapshot(1, 5, 100);
+        if invalidation {
+            let operation = word(&c.invalidate(hex(&rejection), 1000));
+            let record = c.commands.get(&operation).unwrap();
+            proof.words[32] = operation;
+            proof.words[33] = record.command.digest();
+            proof.words[34] = uint(action::INVALIDATE);
+            proof.words[35] = uint(command_state::SUCCESS);
+            proof.words[36] = uint(command_state::INVALIDATED);
+        } else {
+            let record = c.commands.get(&rejection).unwrap();
+            proof.words[32] = rejection;
+            proof.words[33] = record.command.digest();
+            proof.words[34] = uint(action::REJECT);
+            proof.words[35] = uint(command_state::FAILED);
+        }
+        c.consume(proof);
+        assert_eq!(c.get_queue_head()["status"], "Queued");
+        assert_eq!(c.advance_queue(), 0);
+
+        // The original approval position remains usable; a fresh rejection may
+        // replace only the command whose failure/nonexecution is now proven.
+        context("authority");
+        let replacement = word(&c.reject(hex(&uint(1)), hex(&uint(0)), 1000));
+        ack(&mut c, number(replacement), 6, 100);
+        assert_eq!(c.head, 1);
+        assert_eq!(c.get_queue_head()["request"], hex(&uint(1)));
+        c.apply(hex(&uint(1)), hex(&uint(1)), 20, vec![], 1000);
+
+        drop(c);
+        near_sdk::mock::with_mocked_blockchain(|blockchain| {
+            blockchain.take_storage();
+        });
+    }
+}
+
+#[test]
 #[should_panic(expected = "ONLY_AUTHORITY")]
 fn owner_is_not_implicitly_authority() {
     let mut c = fixture();

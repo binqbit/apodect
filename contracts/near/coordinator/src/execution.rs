@@ -141,7 +141,7 @@ impl Coordinator {
             if self
                 .requests
                 .get(key)
-                .is_some_and(|r| r.status == "Queued" || r.status == "Reserving")
+                .is_some_and(|r| matches!(r.status.as_str(), "Queued" | "Rejecting" | "Reserving"))
             {
                 break;
             }
@@ -472,11 +472,32 @@ impl Coordinator {
                                 }
                             }
                         }
+                        self.accept_failed_command(&r);
                         self.commands.insert(target, r);
                     }
                 }
             }
             _ => {}
+        }
+    }
+
+    /// A rejection that provably did not execute leaves the original request live.
+    /// Restore its approval position instead of silently dropping or stranding it.
+    pub(crate) fn accept_failed_command(&mut self, record: &CommandRecord) {
+        if record.command.action() != action::REJECT {
+            return;
+        }
+        let key = identity(record.command.words[0], record.command.words[6]);
+        if let Some(request) = self.requests.get_mut(&key)
+            && request.status == "Rejecting"
+            && request.local_state == request_state::PENDING
+        {
+            request.status = if request.approval_position.is_some() {
+                "Queued"
+            } else {
+                "Pending"
+            }
+            .into();
         }
     }
 }

@@ -447,7 +447,10 @@ impl Relay {
                 &view.block,
             )
             .await?;
-        if matches!(head["status"].as_str(), Some("Queued" | "Reserving")) {
+        if matches!(
+            head["status"].as_str(),
+            Some("Queued" | "Reserving" | "Rejecting")
+        ) {
             return Ok(());
         }
         // Observation can retire a request without moving the bounded FIFO

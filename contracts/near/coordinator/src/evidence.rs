@@ -475,6 +475,13 @@ impl Coordinator {
                 }
                 if record.state == command_state::SUCCESS && old != command_state::SUCCESS {
                     self.accept_command_effects(&record);
+                } else if command_state::is_unresolved(old)
+                    && matches!(
+                        record.state,
+                        command_state::FAILED | command_state::INVALIDATED
+                    )
+                {
+                    self.accept_failed_command(&record);
                 }
                 self.commands.insert(op, record);
             }
