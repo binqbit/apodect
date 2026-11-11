@@ -6,7 +6,7 @@ Apodect coordinates a Project's budget for independent partner agents working ac
 
 The central idea is to make budget allocation a contract-controlled process. NEAR coordinates the Project's common budget and decisions; contracts on participating networks hold Project funds and support local allocations. Partners operate their own agents, rather than handing every task to an Apodect-owned agent.
 
-This document describes the intended product. It does not claim a deployed or tested cross-chain system.
+This document explains the product and its boundaries. The implemented flow runs in the local environment with simulated external providers; [public provider integration](cross-chain-providers.md) requires separate validation.
 
 ## The problem
 
@@ -22,7 +22,7 @@ Apodect addresses these problems with a shared allocation process for each Proje
 
 ## People and responsibilities
 
-A **Workspace** organizes Projects and their participants. Each **Project** has its own allocated budget and separate vault custody. A vault is a contract-controlled place where Project funds are held; this does not imply that there is exactly one vault address across all networks.
+The web **workspace** presents registered Projects and the user's verified wallets. Each **Project** has its own allocated budget and separate vault custody. A vault is a contract-controlled place where Project funds are held; this does not imply that there is exactly one vault address across all networks. Wallet sign-in identifies the user; contract roles grant Project permissions.
 
 - The **owner** allocates the Project budget and appoints or replaces its authority. The owner also has the defined cancellation, pause, continuation, and free-budget withdrawal responsibilities.
 - The **authority** reviews agents' budget requests and starts the funding plan, called Apply. It can request more Project funding from the owner.
@@ -39,7 +39,7 @@ Authority starts Apply to coordinate funding across networks. When sufficient el
 
 An agent receives its full approved amount or nothing. Funds already committed or in transit cannot be allocated a second time. Delivery fees come from the same Project budget and are recorded separately, rather than deducted from the agent's approved amount.
 
-NEAR's coordination is meant to connect these local events into a consistent Project budget view. The contract rules, not one backend's discretionary blockers, define the allocation boundary. This does not remove the need for workers, network access, or verified cross-chain evidence.
+NEAR's coordination connects these local events into a consistent Project budget view. The contract rules, not one backend's discretionary blockers, define the allocation boundary. This does not remove the need for workers, network access, or verified cross-chain evidence.
 
 ## What agents can do with an allocation
 
@@ -47,11 +47,11 @@ Apodect controls the budget issued to an agent, not a fixed list of downstream p
 
 This freedom has a clear limit on Apodect's control: funds outside its controlled vaults cannot be automatically frozen or recovered. Pausing a task does not reverse an external purchase or seize an independent wallet.
 
-Before normal task completion, the agent returns remaining funds and then finalizes, optionally attaching a report reference. Issued funds minus returned funds become the task's recorded expense. That accounting convention does not prove which purchases occurred or where unreturned money remains.
+Before normal task completion, the agent returns external leftovers and releases its unused vault allocation, then finalizes with an optional report reference. Issued principal minus recovered principal becomes the task's recorded expense. Recovery includes external returns and released or reclaimed allocations. That accounting convention does not prove which purchases occurred or where unreturned money remains.
 
 ## What the Project can see
 
-The intended shared view connects:
+The shared view connects:
 
 - Tasks, requests, approvals, and funding priority.
 - Free Project funds, committed allocations, and delivery progress.
@@ -65,6 +65,6 @@ This gives the owner and authority a common way to coordinate agents without req
 
 The first-version design uses **NEAR Intents 1Click** for cross-chain delivery and selects **Read MPC** for checking relevant states on other networks. Their roles differ: moving funds, confirming facts, and authorizing a local contract action are separate responsibilities.
 
-The exact delivery routes, receivers, refunds, evidence coverage, and command-authorization paths still require validation. Contract controls do not guarantee agent honesty, merchant quality, a successful purchase, or an automatic refund.
+Local tests cover controlled delivery recipients, refunds, authenticated commands and evidence. Public provider support for these requirements must be verified before deployment. Contract controls do not guarantee agent honesty, merchant quality, a successful purchase, or an automatic refund.
 
 Continue with [Architecture](architecture.md) for component relationships, or [How It Works](how-it-works.md) for the complete Project and task journey.

@@ -2,7 +2,7 @@
 
 ## A coordinated budget with local control
 
-Apodect combines Project-level coordination on NEAR with contract-controlled funds and task allocations on participating networks. The intended architecture has three distinct responsibilities: deciding what is authorized, moving money when necessary, and confirming what actually happened.
+Apodect combines Project-level coordination on NEAR with contract-controlled funds and task allocations on participating networks. The architecture separates three responsibilities: deciding what is authorized, moving money when necessary, and confirming what actually happened.
 
 The diagrams describe component roles and information flow, not a deployed topology or a promise that all cross-chain actions happen at once. Exact addresses, network-specific storage, and interfaces are not specified here.
 
@@ -14,17 +14,17 @@ The diagrams describe component roles and information flow, not a deployed topol
 
 ### Workspace and Project experience
 
-The website presents Projects, participants, requests, approvals, funding progress, fees, and task outcomes. A Workspace groups Projects; each Project retains its own budget and vault custody.
+The website presents registered Projects, linked wallets, requests, approvals, funding progress, fees, and task outcomes. Deployments are registered in application configuration before appearing in the workspace; each Project retains its own budget and vault custody. Wallet sign-in identifies a profile, while contract roles determine its management permissions.
 
 The owner sets the Project budget and appoints authority. Authority approves requests and starts Apply. The interface presents these as separate actions and makes waiting, delivery, readiness, execution, and completion distinguishable.
 
 ### NEAR coordination contract
 
-NEAR is the common coordination point for Project budgets and permissions. Its intended responsibility is to connect approved requests and their priority with the Project's known funding commitments, local allocations, and confirmed cross-chain outcomes.
+NEAR is the common coordination point for Project budgets and permissions. It connects approved requests and their priority with the Project's known funding commitments, local allocations, and confirmed cross-chain outcomes.
 
 The common view must not count a source balance, funds in transit, and the later destination receipt as three separate assets. A reported balance alone is not enough to show that funds are free: they may already be committed to a task or operation.
 
-Coordination on NEAR does not require every possible transfer to travel through NEAR. The demonstration described in How It Works does illustrate collection through NEAR; it does not prescribe every production route.
+The planner uses eligible funds already on the execution network, then quotes direct deliveries from other source networks for any shortfall. NEAR coordinates those movements without acting as an intermediate custody hub.
 
 ### Local contracts and Project vaults
 

@@ -89,8 +89,7 @@ make local-up
 
 Reset is destructive and explicit; it keeps source, toolchains and build caches.
 Contract changes require a fresh deployment, not an automatic upgrade. Retain any
-valuable history before resetting. Environments from the old separate-profile
-setup are not migrated or deleted automatically; start fresh with this layout.
+valuable history before resetting.
 
 Local Ethereum finality advances with empty blocks; Solana and NEAR retain the
 history needed to reverify receipts after restart. Their ledgers grow until reset.
@@ -101,5 +100,5 @@ A missing historical receipt never means that its payment failed.
 `make check` runs formatting, builds and the contract, adapter and service suites.
 Use `make check-ethereum`, `make check-solana`, `make check-near`,
 `make check-crosschain` or `make check-localnet` for a focused change.
-`make fmt` formats maintained Solidity, Rust and Python. `make local-smoke`
-complements these checks with the actual running stack.
+`make fmt` formats maintained contract, backend, frontend and Python sources.
+`make local-smoke` complements these checks with the actual running stack.
