@@ -14,10 +14,12 @@ The [contracts](docs/contracts.md) support independent Project lifecycles and an
 
 Follow the [application guide](docs/application-development.md) to create database
 secrets, then run `docker compose up --build --wait`. It starts React, Rust/Actix Web,
-PostgreSQL, Kafka and one localnet service containing all three chains, deployed
-contracts, the relayer and simulated providers. The live override excludes localnet.
-Application business features, Kafka consumers and contract integration are not
-implemented yet.
+PostgreSQL, Kafka, a Rust worker and one localnet service containing all three
+chains, deployed contracts and simulated providers. The worker indexes finalized
+state, relays coordinator commands and reconciles liquidity. Wallet authentication
+and unsigned user actions are available through the [backend services](docs/backend.md);
+the business HTTP API and web interface remain for the next stage. The live
+override excludes localnet.
 
 For contract development directly on the host, `make local-up` remains available;
 stop Compose first because both launchers use the same RPC ports. See

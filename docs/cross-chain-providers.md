@@ -54,6 +54,14 @@ including fees and buffer. It binds the quote's deposit address/memo, recipients
 amounts and expiry before Apply. Provider status reports progress; only attributed
 native receipts authorize accounting changes.
 
+The Rust public adapter verifies the provider's Ed25519 quote signature, binds
+the selected asset IDs to native addresses and six-decimal tokens in the
+supported-token catalog, and admits only the provider's mainnet networks.
+Quotes requiring a dispatch memo are rejected by the current vault integration.
+These checks do not prove public route execution or MPC admission.
+[Quote verification](https://docs.near-intents.org/integration/distribution-channels/1click-api/verify-quote-signature),
+[supported tokens](https://docs.near-intents.org/api-reference/oneclick/get-supported-tokens).
+
 The local provider has a separate private store, discovers finalized coordinator
 routes and independently proves source dispatch before spending its finite token
 inventory. It communicates with the application through HTTP quote/status APIs;

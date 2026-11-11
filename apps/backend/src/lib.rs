@@ -1,5 +1,6 @@
 pub mod accounts;
 pub mod actions;
+pub mod application;
 pub mod chains;
 pub mod config;
 pub mod database;

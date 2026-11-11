@@ -1,14 +1,15 @@
 # Application development
 
 One Compose command starts the React frontend, Rust/Actix Web backend,
-PostgreSQL, Kafka and the local blockchain environment. The `localnet` service
-runs Ethereum, Solana and NEAR, deploys their contracts, and starts the relayer
-and simulated MPC/liquidity providers.
+PostgreSQL, Kafka, a Rust worker and the local blockchain environment. The
+`localnet` service runs Ethereum, Solana and NEAR, deploys contracts, and starts
+the simulated MPC/liquidity providers. The separate worker indexes contracts,
+relays authorized commands and reconciles finalized receipts.
 
-The frontend displays Hello World. The backend checks PostgreSQL through SQLx
-at startup and has no business endpoints yet. Kafka is available, but application
-producers, consumers, topic definitions and contract integration are not implemented.
-Local blockchain transactions are real; external provider behavior is simulated.
+The frontend displays Hello World. The HTTP process initializes the backend
+services; business HTTP routes remain for the API stage. The operational CLI
+exposes the internal services now; see [backend workflows](backend.md). Local
+blockchain transactions are real; external provider behavior is simulated.
 
 ## Local startup
 
@@ -57,7 +58,7 @@ allow both PostgreSQL and the backend's UID 1000 to use their mounted secrets.
 | NEAR RPC     | http://localhost:3030 | Local sandbox chain.                                |
 
 Published development ports bind only to loopback. Kafka does not create topics
-automatically. Its single broker also acts as the KRaft controller; this provides
+automatically; the worker creates `apodect.events`. Its single broker also acts as the KRaft controller; this provides
 no high availability.
 
 Use `docker compose logs -f` for startup logs and `docker compose down` to stop.
@@ -69,7 +70,7 @@ Frontend source edits use Vite hot reload through bind mounts. For Rust source
 or Cargo manifest changes, run the Compose watcher in another terminal:
 
 ```sh
-docker compose watch backend
+docker compose watch backend worker
 ```
 
 It rebuilds and replaces the backend using Docker's cached Cargo build. Re-run
@@ -77,21 +78,21 @@ It rebuilds and replaces the backend using Docker's cached Cargo build. Re-run
 configuration. Contract changes also need a rebuilt localnet image and fresh
 deployments; normal restarts preserve the existing contracts.
 
-Inspect or exercise the container's blockchain environment with its existing CLI:
+Inspect the environment and registered Projects:
 
 ```sh
 docker compose exec localnet ./scripts/localnet.sh status
-docker compose exec localnet ./scripts/localnet.sh smoke
-docker compose exec localnet ./scripts/localnet.sh request ethereum 5000000
+printf '%s\n' '{"command":"projects"}' | docker compose exec -T backend apodect
+docker compose logs -f worker
 ```
 
-The smoke flow creates task history and spends test transport fees; run it while
-the queue is idle. The [workflow guide](cross-chain-development.md) covers approval,
-funding and recovery. Prefix its `./scripts/localnet.sh` commands with
-`docker compose exec localnet` to use this environment.
+Compose runs the Rust application worker. The Python relayer and scripted
+owner/authority actions belong to the standalone contract-development harness;
+Compose does not run a second application relayer. The backend prepares wallet
+transactions, while owner, authority and agent wallets sign them themselves.
 
 For host application checks, install Rust 1.99+ with rustfmt, Clippy and a C
-compiler, plus Node 24 and pnpm 12.18.0:
+compiler and make, plus Node 24 and pnpm 12.18.0:
 
 ```sh
 npm install --global pnpm@12.18.0
@@ -124,7 +125,8 @@ Local and live commands operate on the same Compose project and database.
 Stop with the configuration that started the stack before switching to the other
 configuration.
 
-Set `SITE_ADDRESS` in `.env.live` to your hostname, then start:
+Set `SITE_ADDRESS`, `APODECT_SOLANA_CLUSTER`, the deployment configuration and
+the three gas-payer credential paths in `.env.live`, then start:
 
 ```sh
 docker compose --env-file .env.live -f compose.yaml -f compose.live.yaml \
@@ -135,32 +137,63 @@ Caddy serves the built frontend over HTTPS and forwards `/api` to the compiled
 Rust backend. PostgreSQL, Kafka and the backend have no published ports. The
 override removes the localnet service, development mounts and backend watcher;
 it does not deploy local test chains or simulated providers on the live host.
-This is a single-host deployment, without high availability. Kafka's combined
+Public deployments also require the provider capabilities described in
+[cross-chain providers](cross-chain-providers.md); a local MPC simulator does
+not establish public Read MPC admission. This is a single-host deployment,
+without high availability. Kafka's combined
 broker/controller setup is unsuitable for critical deployments requiring redundancy.
 
 For live logs and shutdown, retain the same `--env-file` and both
 `-f` options, replacing `up --build --wait` with `logs -f` or `down`.
 
+1Click accepts unauthenticated quotes; an optional partner API key changes its
+[fee schedule](https://docs.near-intents.org/integration/distribution-channels/1click-api/authentication).
+To use one, save it in `.secrets/liquidity-api-key` with mode `0444` inside the
+private `0700` directory, and set `liquidity.api_key_file` in deployment JSON to
+`/run/secrets/liquidity_api_key`. Save this additional override as
+`.secrets/compose.liquidity.yaml`:
+
+```yaml
+services:
+  backend:
+    secrets:
+      - liquidity_api_key
+secrets:
+  liquidity_api_key:
+    file: ./.secrets/liquidity-api-key
+```
+
+Append `-f .secrets/compose.liquidity.yaml` to the live Compose commands. Only the
+backend mounts this provider credential; the worker uses the persisted quotes.
+`APODECT_FEE_WARNING_BPS` configures the soft fee warning (default `500`, or 5%).
+Funding proposals show expected fees and the maximum input buffer separately;
+warnings do not block an otherwise affordable plan.
+
 ## Persistent data
 
 Named volumes retain PostgreSQL data, Kafka data, localnet ledgers and journals,
-and Caddy's certificates/configuration. `docker compose down` keeps these volumes;
+the generated local gas-payer credentials, and Caddy's certificates/configuration. `docker compose down` keeps these volumes;
 `down --volumes` deletes the volumes belonging to that configuration. Keep
 valuable data and credentials backed up before any reset.
 
-Database initialization runs only on an empty volume. Editing a password file
+The backend embeds the initial SQLx migration. During this prerelease phase,
+changes to that initial schema require recreating the disposable application
+database; production migration history is not being maintained yet.
+
+Database role initialization runs only on an empty volume. Editing a password file
 does not rotate an existing database password. The localnet volume likewise
 retains deployments across restarts; rebuilding an image does not upgrade them.
 
-To redeploy changed contracts, delete only the localnet volume and rebuild its
-container. This deletes test-chain state, deployments, journals and disposable
-keys while preserving PostgreSQL and Kafka data:
+For a deliberate local chain reset, stop the application processes too. The
+bootstrap rewrites its public configuration for the new genesis; the backend
+registers a new deployment identity. Old database projections remain historical.
+This deletes test-chain state, deployments, journals and disposable keys:
 
 ```sh
-docker compose stop localnet
+docker compose stop frontend backend worker localnet
 docker compose rm -f localnet
 docker volume rm apodect_localnet_data
-docker compose up --build --wait localnet
+docker compose up --build --wait
 ```
 
 ## Database backup and restore
@@ -183,7 +216,7 @@ Keep the applications stopped if any restore command fails:
 (
 set -e
 docker compose --env-file .env.live -f compose.yaml -f compose.live.yaml \
-  stop frontend backend
+  stop frontend backend worker
 docker compose --env-file .env.live -f compose.yaml -f compose.live.yaml \
   exec -T postgres dropdb -U postgres --if-exists apodect
 docker compose --env-file .env.live -f compose.yaml -f compose.live.yaml \

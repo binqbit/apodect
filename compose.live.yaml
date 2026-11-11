@@ -22,6 +22,47 @@ services:
       target: production
     develop: !reset null
     ports: !reset []
+    environment:
+      APODECT_CONFIG: /run/secrets/deployment_config
+      APP_ORIGIN: https://${SITE_ADDRESS:?Set SITE_ADDRESS to your public hostname}
+      APODECT_SOLANA_CLUSTER: ${APODECT_SOLANA_CLUSTER:?Set the Solana cluster (mainnet, testnet or devnet)}
+    volumes: !reset []
+    secrets:
+      - deployment_config
+    depends_on: !override
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    logging: *logging
+
+  worker:
+    build:
+      target: production
+    develop: !reset null
+    environment:
+      APODECT_CONFIG: /run/secrets/deployment_config
+      APODECT_ETHEREUM_RELAYER_KEY_FILE: /run/secrets/ethereum_relayer
+      APODECT_SOLANA_RELAYER_KEY_FILE: /run/secrets/solana_relayer
+      APODECT_NEAR_RELAYER_KEY_FILE: /run/secrets/near_relayer
+      APODECT_NEAR_RELAYER_ACCOUNT: ${APODECT_NEAR_RELAYER_ACCOUNT:?Set the NEAR gas-payer account}
+    volumes: !reset []
+    secrets:
+      - deployment_config
+      - ethereum_relayer
+      - solana_relayer
+      - near_relayer
+    depends_on: !override
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
     restart: unless-stopped
     read_only: true
     tmpfs:
@@ -70,5 +111,16 @@ services:
 
 volumes:
   localnet_data: !reset null
+  backend_runtime: !reset null
   caddy_data:
   caddy_config:
+
+secrets:
+  deployment_config:
+    file: ${APODECT_DEPLOYMENT_FILE:-./.secrets/deployment.json}
+  ethereum_relayer:
+    file: ${APODECT_ETHEREUM_RELAYER_FILE:-./.secrets/ethereum-relayer.key}
+  solana_relayer:
+    file: ${APODECT_SOLANA_RELAYER_FILE:-./.secrets/solana-relayer.json}
+  near_relayer:
+    file: ${APODECT_NEAR_RELAYER_FILE:-./.secrets/near-relayer.json}

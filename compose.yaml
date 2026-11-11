@@ -77,10 +77,17 @@ services:
       PGDATABASE: apodect
       PGUSER: apodect
       PGPASSWORD_FILE: /run/secrets/database_password
+      APODECT_CONFIG: /app/backend-runtime/deployment.json
+      APP_ORIGIN: http://localhost:3000
+      APODECT_FEE_WARNING_BPS: ${APODECT_FEE_WARNING_BPS:-500}
     secrets:
       - database_password
+    volumes:
+      - backend_runtime:/app/backend-runtime:ro
     depends_on:
       postgres:
+        condition: service_healthy
+      localnet:
         condition: service_healthy
     develop:
       watch:
@@ -93,7 +100,6 @@ services:
     ports:
       - "127.0.0.1:3001:3001"
     healthcheck:
-      # An empty backend intentionally has no HTTP endpoints.
       test:
         [
           "CMD",
@@ -109,6 +115,52 @@ services:
       timeout: 3s
       retries: 6
       start_period: 15s
+
+  worker:
+    build:
+      context: .
+      dockerfile: infra/backend.Dockerfile
+      target: development
+    command: ["apodect-worker"]
+    init: true
+    stop_grace_period: 40s
+    environment:
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGDATABASE: apodect
+      PGUSER: apodect
+      PGPASSWORD_FILE: /run/secrets/database_password
+      KAFKA_BROKERS: kafka:9092
+      APODECT_CONFIG: /app/backend-runtime/deployment.json
+      APODECT_ETHEREUM_RELAYER_KEY_FILE: /app/backend-runtime/ethereum.key
+      APODECT_SOLANA_RELAYER_KEY_FILE: /app/backend-runtime/solana.json
+      APODECT_NEAR_RELAYER_KEY_FILE: /app/backend-runtime/near.json
+      APODECT_NEAR_RELAYER_ACCOUNT: relayer.apodect.test.near
+    secrets:
+      - database_password
+    volumes:
+      - backend_runtime:/app/backend-runtime:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      localnet:
+        condition: service_healthy
+    develop:
+      watch:
+        - action: rebuild
+          path: ./apps/backend
+        - action: rebuild
+          path: ./apps/Cargo.toml
+        - action: rebuild
+          path: ./apps/Cargo.lock
+    healthcheck:
+      test: ["CMD", "apodect-worker", "--health-check"]
+      interval: 15s
+      timeout: 3s
+      retries: 6
+      start_period: 120s
 
   frontend:
     build:
@@ -151,8 +203,11 @@ services:
       - seccomp=./infra/localnet-seccomp.json
     environment:
       APODECT_CONTAINER: "1"
+      APODECT_RELAYER: external
+      APODECT_BACKEND_RUNTIME: /app/backend-runtime
     volumes:
       - localnet_data:/app/.localnet
+      - backend_runtime:/app/backend-runtime
     ports:
       - "127.0.0.1:8545:8545"
       - "127.0.0.1:8899:8899"
@@ -176,3 +231,4 @@ volumes:
   postgres_data:
   kafka_data:
   localnet_data:
+  backend_runtime:
