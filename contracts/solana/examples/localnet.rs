@@ -5,11 +5,14 @@ use anchor_lang::prelude::Pubkey;
 use anchor_lang::solana_program::{instruction::Instruction, program_pack::Pack};
 use anchor_lang::{AccountDeserialize, Discriminator, InstructionData, ToAccountMetas};
 use anchor_spl::token::spl_token;
-use apodect_solana::state::{BudgetRequest, Project, RequestState, Task, TaskLifecycle, Workspace};
+use apodect_solana::state::{Project, Task, Workspace};
 use apodect_solana::{accounts, instruction};
 use serde_json::{json, Value};
 use solana_keypair::Keypair;
 use solana_signer::Signer;
+
+#[path = "localnet/bridge.rs"]
+mod bridge;
 
 #[path = "localnet/client.rs"]
 mod client;
@@ -175,8 +178,56 @@ impl Localnet {
         }))?;
         self.check()?;
         fs::remove_file(self.dir.join("bootstrap-started.json"))?;
-        println!("Solana workspace, Project and funded token vault bootstrapped");
+        eprintln!("Solana workspace, Project and funded token vault bootstrapped");
         Ok(())
+    }
+
+    /// Create the finite local provider wallet; this is simulator setup, not custody logic.
+    fn bootstrap_liquidity_fixture(&self) -> Result<Value> {
+        self.bootstrap()?;
+        let mut manifest = self.manifest()?;
+        if manifest["asset"]["liquidity_token"].is_null() {
+            ensure(
+                !self.dir.join("bridge-bootstrap-started.json").exists(),
+                "interrupted LP bootstrap requires explicit local reset",
+            )?;
+            self.write_json(
+                "bridge-bootstrap-started.json",
+                &json!({"status":"bootstrapping liquidity"}),
+            )?;
+            let owner = self.key("owner", false)?;
+            let lp = self.key("liquidity", true)?;
+            let signature = self.rpc(
+                "requestAirdrop",
+                json!([lp.pubkey().to_string(), 20_000_000_000u64]),
+            )?;
+            self.confirm(signature.as_str().ok_or("missing LP airdrop")?)?;
+            let mint = address(&manifest["asset"]["address"])?;
+            let token = self.create_token(&owner, mint, lp.pubkey())?;
+            let tx = self.send(
+                &owner,
+                &[spl_token::instruction::transfer_checked(
+                    &spl_token::ID,
+                    &address(&manifest["asset"]["owner_token"])?,
+                    &mint,
+                    &token,
+                    &owner.pubkey(),
+                    &[],
+                    500_000_000_000,
+                    6,
+                )?],
+                &[],
+            )?;
+            self.finalized_proof(&tx)?;
+            manifest["asset"]["liquidity_token"] = json!(token.to_string());
+            manifest["accounts"]["liquidity"] = json!({
+                "address": lp.pubkey().to_string(),
+                "key_file": self.dir.join("keys/liquidity.json")
+            });
+            self.write_json("manifest.json", &manifest)?;
+            fs::remove_file(self.dir.join("bridge-bootstrap-started.json"))?;
+        }
+        Ok(manifest)
     }
 
     fn manifest(&self) -> Result<Value> {
@@ -236,13 +287,13 @@ impl Localnet {
             )?;
         }
         let workspace_key = address(&manifest["contracts"]["workspace"])?;
-        let workspace: Workspace = self.read(workspace_key)?;
+        let workspace: Workspace = self.read_confirmed(workspace_key)?;
         ensure(
             workspace.owner == owner.pubkey(),
             "Workspace owner mismatch",
         )?;
         let project_key = address(&manifest["contracts"]["project"])?;
-        let project: Project = self.read(project_key)?;
+        let project: Project = self.read_confirmed(project_key)?;
         let (expected_project, bump) = Pubkey::find_program_address(
             &[
                 b"project",
@@ -263,7 +314,7 @@ impl Localnet {
             "Project authority mismatch",
         )?;
         let mint = address(&manifest["asset"]["address"])?;
-        let mint_account = self.account(mint)?;
+        let mint_account = self.account_confirmed(mint)?;
         ensure(
             address(&mint_account["owner"])? == spl_token::ID,
             "mint token program mismatch",
@@ -283,7 +334,7 @@ impl Localnet {
                 .0,
             "vault PDA mismatch",
         )?;
-        let vault = self.token(vault_key)?;
+        let vault = self.token_confirmed(vault_key)?;
         ensure(
             vault.mint == mint && vault.owner == project_key,
             "vault custody mismatch",
@@ -292,7 +343,7 @@ impl Localnet {
             ("owner_token", owner.pubkey()),
             ("agent_token", agent.pubkey()),
         ] {
-            let token = self.token(address(&manifest["asset"][field])?)?;
+            let token = self.token_confirmed(address(&manifest["asset"][field])?)?;
             ensure(
                 token.mint == mint && token.owner == holder,
                 "role token account mismatch",
@@ -302,7 +353,7 @@ impl Localnet {
             "getProgramAccounts",
             json!([apodect_solana::ID.to_string(), {"encoding":"base64","commitment":"confirmed"}]),
         )?;
-        let mut controlled = u128::from(project.free);
+        let mut controlled = u128::from(project.free) + u128::from(project.held);
         for item in program_accounts
             .as_array()
             .ok_or("missing program accounts")?
@@ -320,196 +371,7 @@ impl Localnet {
             u128::from(vault.amount) >= controlled,
             "vault cannot cover recorded free and controlled task principal",
         )?;
-        println!("Solana RPC program, roles, mint, account identities and custody checked");
-        Ok(())
-    }
-
-    fn smoke(&self) -> Result<()> {
-        self.check()?;
-        let manifest = self.manifest()?;
-        let authority = self.key("authority", false)?;
-        let agent = self.key("agent", false)?;
-        let workspace = address(&manifest["contracts"]["workspace"])?;
-        let project = address(&manifest["contracts"]["project"])?;
-        let vault = address(&manifest["contracts"]["vault"])?;
-        let mint = address(&manifest["asset"]["address"])?;
-        let agent_token = address(&manifest["asset"]["agent_token"])?;
-        let before: Project = self.read(project)?;
-        ensure(
-            before.head.is_none() && before.tail.is_none(),
-            "smoke needs an empty queue; finish existing development requests first",
-        )?;
-        ensure(
-            before.free >= 60_000_000,
-            "smoke requires 60 test USDC of free Project funding",
-        )?;
-        let vault_before = self.token(vault)?.amount;
-        let agent_before = self.token(agent_token)?.amount;
-        let task = Pubkey::find_program_address(
-            &[b"task", project.as_ref(), &before.task_count.to_le_bytes()],
-            &apodect_solana::ID,
-        )
-        .0;
-        let request = Pubkey::find_program_address(
-            &[b"request", task.as_ref(), &0u64.to_le_bytes()],
-            &apodect_solana::ID,
-        )
-        .0;
-        let mut signatures = Vec::new();
-        signatures.push(self.send(
-            &agent,
-            &[ix(
-                instruction::CreateTask {
-                    amount: 60_000_000,
-                    purpose: [1; 32],
-                },
-                accounts::CreateTask {
-                    project,
-                    task,
-                    request,
-                    agent: agent.pubkey(),
-                    system_program: solana_system_interface::program::ID,
-                },
-            )],
-            &[],
-        )?);
-        signatures.push(self.send(
-            &authority,
-            &[ix(
-                instruction::ApproveRequest {},
-                accounts::ApproveRequest {
-                    project,
-                    task,
-                    request,
-                    authority: authority.pubkey(),
-                    tail: None,
-                },
-            )],
-            &[],
-        )?);
-        ensure(
-            self.read::<Project>(project)?.free == before.free,
-            "approval reserved cash unexpectedly",
-        )?;
-        signatures.push(self.send(
-            &authority,
-            &[ix(
-                instruction::ApplyNext {},
-                accounts::ApplyNext {
-                    project,
-                    head: request,
-                    authority: authority.pubkey(),
-                    task: Some(task),
-                },
-            )],
-            &[],
-        )?);
-        ensure(
-            self.read::<Task>(task)?.available == 60_000_000
-                && self.read::<Project>(project)?.free == before.free - 60_000_000,
-            "full allocation mismatch",
-        )?;
-        signatures.push(self.send(
-            &agent,
-            &[ix(
-                instruction::Withdraw { amount: 40_000_000 },
-                accounts::Withdraw {
-                    project,
-                    task,
-                    mint,
-                    vault,
-                    agent_token,
-                    agent: agent.pubkey(),
-                    token_program: spl_token::ID,
-                },
-            )],
-            &[],
-        )?);
-        signatures.push(self.send(
-            &agent,
-            &[ix(
-                instruction::ReturnFunds { amount: 15_000_000 },
-                accounts::ReturnFunds {
-                    project,
-                    task,
-                    mint,
-                    vault,
-                    agent_token,
-                    agent: agent.pubkey(),
-                    token_program: spl_token::ID,
-                },
-            )],
-            &[],
-        )?);
-        ensure(
-            self.read::<Task>(task)?.available == 20_000_000,
-            "return refilled task rights unexpectedly",
-        )?;
-        signatures.push(self.send(
-            &agent,
-            &[ix(
-                instruction::ReleaseFunds { amount: 20_000_000 },
-                accounts::ReleaseFunds {
-                    project,
-                    task,
-                    agent: agent.pubkey(),
-                },
-            )],
-            &[],
-        )?);
-        signatures.push(self.send(
-            &agent,
-            &[ix(
-                instruction::FinalizeTask { report: [9; 32] },
-                accounts::FinalizeTask {
-                    workspace,
-                    project,
-                    task,
-                    actor: agent.pubkey(),
-                    pending: None,
-                },
-            )],
-            &[],
-        )?);
-        let state: Task = self.read(task)?;
-        let final_project: Project = self.read(project)?;
-        ensure(
-            state.lifecycle == TaskLifecycle::Completed
-                && state.started
-                && !state.paused
-                && state.pending.is_none()
-                && state.available == 0
-                && state.issued == 60_000_000
-                && state.recovered == 35_000_000
-                && state.final_expense()? == Some(25_000_000)
-                && state.report == [9; 32],
-            "completed task accounting mismatch",
-        )?;
-        ensure(
-            self.read::<BudgetRequest>(request)?.state == RequestState::Funded
-                && final_project.head.is_none()
-                && final_project.tail.is_none()
-                && final_project.free == before.free - 25_000_000,
-            "completed request/queue/free accounting mismatch",
-        )?;
-        ensure(
-            self.token(vault)?.amount == vault_before - 25_000_000
-                && self.token(agent_token)?.amount == agent_before + 25_000_000,
-            "real token balance mismatch",
-        )?;
-        self.write_json(
-            "last-smoke.json",
-            &json!({
-                "chain":"solana",
-                "task":task.to_string(),
-                "request":request.to_string(),
-                "expense":25_000_000,
-                "signatures":signatures,
-                "smoke":"passed"
-            }),
-        )?;
-        self.check()?;
-        println!("Solana RPC smoke passed: created, approved, allocated, withdrew, returned, released, finalized; expense 25 test USDC");
+        eprintln!("Solana RPC program, roles, mint, account identities and custody checked");
         Ok(())
     }
 }
@@ -533,7 +395,7 @@ fn main() -> Result<()> {
         Some("prepare") => localnet.prepare(),
         Some("bootstrap") => localnet.bootstrap(),
         Some("check") => localnet.check(),
-        Some("smoke") => localnet.smoke(),
-        _ => Err("usage: localnet {prepare|bootstrap|check|smoke}".into()),
+        Some("bridge") => bridge::run(&localnet),
+        _ => Err("usage: localnet {prepare|bootstrap|check|bridge}".into()),
     }
 }

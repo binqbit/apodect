@@ -2,14 +2,13 @@
 
 import importlib.util
 import os
-from pathlib import Path
 import socket
 import subprocess
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
-
 
 SPEC = importlib.util.spec_from_file_location(
     "localnet", Path(__file__).parents[1] / "localnet.py"

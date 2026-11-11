@@ -37,6 +37,21 @@ pub(super) fn address(value: &Value) -> Result<Pubkey> {
     Ok(value.as_str().ok_or("missing manifest address")?.parse()?)
 }
 
+fn unique_message(payer: Pubkey, instructions: &[Instruction]) -> Message {
+    // Separate explicit calls can otherwise have identical signatures while they share
+    // a recent blockhash. A memo distinguishes intentions without changing contract data.
+    // This is called once per send; retries must retain the original signed transaction.
+    let mut instructions = instructions.to_vec();
+    instructions.push(Instruction {
+        program_id: "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr"
+            .parse()
+            .expect("standard SPL Memo program ID"),
+        accounts: vec![],
+        data: Keypair::new().pubkey().to_string().into_bytes(),
+    });
+    Message::new(&instructions, Some(&payer))
+}
+
 impl Localnet {
     pub(super) fn rpc(&self, method: &str, params: Value) -> Result<Value> {
         let mut child = Command::new("curl")
@@ -131,27 +146,40 @@ impl Localnet {
         }
         let tx = Transaction::new(
             &signers,
-            Message::new(instructions, Some(&payer.pubkey())),
+            unique_message(payer.pubkey(), instructions),
             blockhash,
         );
-        let result = self.rpc(
-            "sendTransaction",
-            json!([
-                STANDARD.encode(wincode::serialize(&tx)?),
-                {
-                    "encoding":"base64",
-                    "preflightCommitment":"confirmed",
-                    "skipPreflight":false,
-                    "maxRetries":5
-                }
-            ]),
+        let signature = tx.signatures[0].to_string();
+        let serialized = wincode::serialize(&tx)?;
+        ensure(
+            serialized.len() <= 1232,
+            "transaction exceeds Solana's legacy packet size limit",
         )?;
-        let signature = result.as_str().ok_or("missing transaction signature")?;
-        self.confirm(signature)?;
-        Ok(signature.to_owned())
+        let result = self
+            .rpc(
+                "sendTransaction",
+                json!([
+                    STANDARD.encode(serialized),
+                    {
+                        "encoding":"base64",
+                        "preflightCommitment":"confirmed",
+                        "skipPreflight":false,
+                        "maxRetries":5
+                    }
+                ]),
+            )
+            .map_err(|error| {
+                format!("transaction {signature} submission is unconfirmed: {error}; inspect it before retrying")
+            })?;
+        ensure(
+            result.as_str() == Some(signature.as_str()),
+            &format!("RPC returned a different transaction signature; inspect {signature} before retrying"),
+        )?;
+        self.confirm(&signature)?;
+        Ok(signature)
     }
 
-    pub(super) fn account(&self, key: Pubkey) -> Result<Value> {
+    pub(super) fn account_confirmed(&self, key: Pubkey) -> Result<Value> {
         let result = self.rpc(
             "getAccountInfo",
             json!([key.to_string(), {"encoding":"base64","commitment":"confirmed"}]),
@@ -165,8 +193,8 @@ impl Localnet {
         Ok(STANDARD.decode(account["data"][0].as_str().ok_or("missing account data")?)?)
     }
 
-    pub(super) fn read<T: AccountDeserialize>(&self, key: Pubkey) -> Result<T> {
-        let account = self.account(key)?;
+    pub(super) fn read_confirmed<T: AccountDeserialize>(&self, key: Pubkey) -> Result<T> {
+        let account = self.account_confirmed(key)?;
         ensure(
             address(&account["owner"])? == apodect_solana::ID,
             "state account owner mismatch",
@@ -174,13 +202,117 @@ impl Localnet {
         Ok(T::try_deserialize(&mut self.bytes(&account)?.as_slice())?)
     }
 
-    pub(super) fn token(&self, key: Pubkey) -> Result<spl_token::state::Account> {
-        let account = self.account(key)?;
+    pub(super) fn token_confirmed(&self, key: Pubkey) -> Result<spl_token::state::Account> {
+        let account = self.account_confirmed(key)?;
         ensure(
             address(&account["owner"])? == spl_token::ID,
             "token program mismatch",
         )?;
         Ok(spl_token::state::Account::unpack(&self.bytes(&account)?)?)
+    }
+
+    pub(super) fn finalized_proof(&self, signature: &str) -> Result<Value> {
+        let start = Instant::now();
+        loop {
+            let tx = self.rpc("getTransaction", json!([
+                signature,
+                {"commitment":"finalized", "encoding":"json", "maxSupportedTransactionVersion":0}
+            ]))?;
+            if !tx.is_null() {
+                ensure(tx["meta"]["err"].is_null(), "finalized transaction failed")?;
+                let slot = tx["slot"].as_u64().ok_or("missing finalized slot")?;
+                let block = self.rpc(
+                    "getBlock",
+                    json!([
+                        slot,
+                        {"commitment":"finalized", "transactionDetails":"none", "rewards":false,
+                            "maxSupportedTransactionVersion":0}
+                    ]),
+                )?;
+                return Ok(json!({
+                    "tx_hash": signature,
+                    "block_height": slot.to_string(),
+                    "block_hash": block["blockhash"],
+                    "timestamp": tx["blockTime"].as_u64().unwrap_or(0).to_string(),
+                    "finalized": true
+                }));
+            }
+            ensure(
+                start.elapsed() < Duration::from_secs(90),
+                "transaction is not finalized; inspect its signature before retrying",
+            )?;
+            sleep(Duration::from_millis(200));
+        }
+    }
+
+    pub(super) fn read_finalized_optional<T: AccountDeserialize>(
+        &self,
+        key: Pubkey,
+    ) -> Result<Option<T>> {
+        let response = self.rpc(
+            "getAccountInfo",
+            json!([key.to_string(),{"encoding":"base64","commitment":"finalized"}]),
+        )?;
+        let value = &response["value"];
+        if value.is_null() {
+            return Ok(None);
+        }
+        let owner = address(&value["owner"])?;
+        let data = self.bytes(value)?;
+        if owner == solana_system_interface::program::ID && data.is_empty() {
+            // Prefunding a PDA with lamports does not create a typed receipt.
+            return Ok(None);
+        }
+        ensure(owner == apodect_solana::ID, "foreign account owner")?;
+        Ok(Some(T::try_deserialize(&mut data.as_slice())?))
+    }
+
+    pub(super) fn finalized_token(&self, key: Pubkey) -> Result<spl_token::state::Account> {
+        let response = self.rpc(
+            "getAccountInfo",
+            json!([
+                key.to_string(), {"encoding":"base64", "commitment":"finalized"}
+            ]),
+        )?;
+        let value = &response["value"];
+        ensure(
+            !value.is_null() && address(&value["owner"])? == spl_token::ID,
+            "missing legacy token account",
+        )?;
+        Ok(spl_token::state::Account::unpack(&self.bytes(value)?)?)
+    }
+
+    pub(super) fn read_finalized_batch<T: AccountDeserialize>(
+        &self,
+        keys: &[Pubkey],
+    ) -> Result<Vec<T>> {
+        if keys.is_empty() {
+            return Ok(vec![]);
+        }
+        let addresses: Vec<_> = keys.iter().map(|key| key.to_string()).collect();
+        let response = self.rpc(
+            "getMultipleAccounts",
+            json!([
+                addresses, {"encoding":"base64", "commitment":"finalized"}
+            ]),
+        )?;
+        let accounts = response["value"]
+            .as_array()
+            .ok_or("missing batch account values")?;
+        ensure(
+            accounts.len() == keys.len(),
+            "incomplete batch account response",
+        )?;
+        accounts
+            .iter()
+            .map(|account| {
+                ensure(
+                    !account.is_null() && address(&account["owner"])? == apodect_solana::ID,
+                    "missing program-owned scan account",
+                )?;
+                Ok(T::try_deserialize(&mut self.bytes(account)?.as_slice())?)
+            })
+            .collect()
     }
 
     pub(super) fn write_json(&self, name: &str, value: &Value) -> Result<()> {
@@ -317,5 +449,91 @@ impl Localnet {
             &[&token],
         )?;
         Ok(token.pubkey())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use apodect_solana::{accounts, instruction};
+    use litesvm::LiteSVM;
+
+    #[test]
+    fn equal_explicit_transfers_in_one_block_execute_independently() {
+        let mut svm = LiteSVM::new();
+        let payer = Keypair::new();
+        let recipient = Keypair::new().pubkey();
+        svm.airdrop(&payer.pubkey(), 1_000_000_000).unwrap();
+        svm.airdrop(&recipient, 1_000_000).unwrap();
+        let instructions = [solana_system_interface::instruction::transfer(
+            &payer.pubkey(),
+            &recipient,
+            100,
+        )];
+        let blockhash = svm.latest_blockhash();
+
+        // Before the fix, equal explicit calls had the same signature and one payment.
+        let plain = || {
+            Transaction::new(
+                &[&payer],
+                Message::new(&instructions, Some(&payer.pubkey())),
+                blockhash,
+            )
+        };
+        assert_eq!(plain().signatures, plain().signatures);
+
+        let transaction = || {
+            Transaction::new(
+                &[&payer],
+                unique_message(payer.pubkey(), &instructions),
+                blockhash,
+            )
+        };
+        let first = transaction();
+        let second = transaction();
+        assert_ne!(first.signatures, second.signatures);
+        svm.send_transaction(first.clone()).unwrap();
+        svm.send_transaction(second).unwrap();
+        assert_eq!(svm.get_balance(&recipient), Some(1_000_200));
+
+        // Replaying existing signed bytes remains one effect, regardless of the memo.
+        assert!(svm.send_transaction(first).is_err());
+        assert_eq!(svm.get_balance(&recipient), Some(1_000_200));
+    }
+
+    #[test]
+    fn bounded_command_with_all_optional_accounts_and_memo_fits_packet() {
+        let payer = Keypair::new();
+        let command = super::super::ix(
+            instruction::ExecuteCommand {
+                bytes: [0; 384],
+                signature: [0; 64],
+                recovery_id: 0,
+            },
+            accounts::ExecuteCommand {
+                project: Pubkey::new_unique(),
+                workspace: Pubkey::new_unique(),
+                mint: Pubkey::new_unique(),
+                vault: Pubkey::new_unique(),
+                receipt: Pubkey::new_unique(),
+                payer: payer.pubkey(),
+                system_program: solana_system_interface::program::ID,
+                token_program: spl_token::ID,
+                task: Some(Pubkey::new_unique()),
+                request: Some(Pubkey::new_unique()),
+                plan: Some(Pubkey::new_unique()),
+                route: Some(Pubkey::new_unique()),
+                escrow: Some(Pubkey::new_unique()),
+                recipient: Some(Pubkey::new_unique()),
+                target: Some(Pubkey::new_unique()),
+            },
+        );
+        let tx = Transaction::new(
+            &[&payer],
+            unique_message(payer.pubkey(), &[command]),
+            Default::default(),
+        );
+        let size = wincode::serialize(&tx).unwrap().len();
+        assert!(size <= 1232, "command and memo use {size} bytes");
     }
 }

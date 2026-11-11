@@ -53,6 +53,8 @@ case "${1:-}" in
         "$solana_local_dir/bin/client" prepare
         ;;
     serve)
+        # Keep native receipt/block proofs for the full lifetime of this local ledger.
+        # The validator defaults to pruning after 10,000 shreds, even if omitted.
         export RUST_LOG="${RUST_LOG:-warn}"
         exec "${solana_isolation[@]}" \
             --state-dir "$solana_local_dir/rootlesskit" \
@@ -64,17 +66,18 @@ case "${1:-}" in
             solana-test-validator \
             --config "$solana_local_dir/cli.yml" \
             --ledger "$solana_local_dir/ledger" \
+            --limit-ledger-size 18446744073709551615 \
             --bind-address 127.0.0.1 \
             --rpc-port "$solana_rpc_port" \
             --faucet-port "$solana_faucet_port" \
             --bpf-program 9HLdesoinPvKWr56HRfpbGL9M8yKWzzBFNAr4rbZLkQP "$APODECT_SOLANA_PROGRAM" \
             --quiet
         ;;
-    bootstrap|check|smoke)
+    bootstrap|check|bridge)
         exec "$solana_local_dir/bin/client" "$1"
         ;;
     *)
-        echo "Usage: $0 {prepare|serve|bootstrap|check|smoke}" >&2
+        echo "Usage: $0 {prepare|serve|bootstrap|check|bridge}" >&2
         exit 2
         ;;
 esac

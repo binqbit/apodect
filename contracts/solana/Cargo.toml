@@ -10,6 +10,10 @@ description = "Locally funded Apodect Project contracts for Solana"
 [lib]
 crate-type = ["cdylib", "lib"]
 
+[[example]]
+name = "localnet"
+test = true
+
 [features]
 default = []
 no-entrypoint = []

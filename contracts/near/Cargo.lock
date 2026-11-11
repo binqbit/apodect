@@ -65,6 +65,9 @@ name = "apodect-near-localnet"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "near-crypto",
+ "near-jsonrpc-client",
+ "near-primitives",
  "near-sandbox",
  "near-workspaces",
  "serde_json",

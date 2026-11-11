@@ -22,6 +22,8 @@ if [[ -z "${FOUNDRY_SOLC:-}" ]] && command -v solc >/dev/null 2>&1; then
     fi
 fi
 
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts -p 'test_*.py' -v
+
 # Soldeer uses the exact revisions recorded in the package configuration and lockfile.
 forge soldeer install --config-location soldeer
 forge fmt --check

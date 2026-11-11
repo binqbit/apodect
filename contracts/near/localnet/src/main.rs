@@ -1,8 +1,11 @@
 //! Persistent local sandbox deployment and RPC lifecycle tooling. No public network support.
 
+mod bridge;
+mod transactions;
+
 use anyhow::{Context, Result, bail, ensure};
 use near_workspaces::network::{Sandbox, ValidatorKey};
-use near_workspaces::types::{KeyType, NearToken, SecretKey};
+use near_workspaces::types::{Finality, KeyType, NearToken, SecretKey};
 use near_workspaces::{Account, AccountId, Worker};
 use serde_json::{Value, json};
 use std::fs::{self, OpenOptions};
@@ -46,9 +49,15 @@ fn account_id(role: &str) -> Result<AccountId> {
 }
 
 fn wasm(name: &str) -> Result<Vec<u8>> {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../artifacts")
-        .join(format!("apodect_near_{name}.wasm"));
+    let directory = PathBuf::from(
+        std::env::var_os("APODECT_NEAR_ARTIFACT_DIR")
+            .context("APODECT_NEAR_ARTIFACT_DIR is required; launch through scripts/localnet.sh")?,
+    );
+    ensure!(
+        directory.is_absolute(),
+        "APODECT_NEAR_ARTIFACT_DIR must be absolute"
+    );
+    let path = directory.join(format!("apodect_near_{name}.wasm"));
     fs::read(&path).with_context(|| format!("read {}; run prepare first", path.display()))
 }
 
@@ -118,6 +127,16 @@ fn prepare(data: &Path) -> Result<()> {
     ));
     config["network"]["boot_nodes"] = json!("");
     config["telemetry"]["endpoints"] = json!([]);
+    // Retain transaction and receipt evidence across restarts and short sandbox epochs.
+    config["archive"] = json!(true);
+    // nearcore 2.14 creates archival DBs through split hot/cold storage.
+    // Archive=true alone creates an RPC DB and fails the startup DB-kind check.
+    config["cold_store"] = json!({"path": "cold-data"});
+    config["split_storage"] = json!({"enable_split_storage_view_client": true});
+    config["save_trie_changes"] = json!(true);
+    config["save_tx_outcomes"] = json!(true);
+    config["save_receipt_to_tx"] = json!(true);
+    config["tracked_shards_config"] = json!("AllShards");
     write_json(&node.join("config.json"), &config)?;
     println!("NEAR persistent sandbox prepared: {}", node.display());
     Ok(())
@@ -183,17 +202,36 @@ impl Localnet {
             )?;
         }
         let account = self.account(role)?;
-        if self.worker.view_account(account.id()).await.is_err() {
+        if self
+            .worker
+            .view_account(account.id())
+            .finality(Finality::Final)
+            .await
+            .is_err()
+        {
             let root = Account::from_file(self.data.join("node/validator_key.json"), &self.worker)?;
-            root.create_subaccount(role)
-                .keys(account.secret_key().clone())
-                .initial_balance(NearToken::from_near(100))
-                .transact()
-                .await?
-                .into_result()?;
+            use near_primitives::action::{
+                Action, AddKeyAction, CreateAccountAction, TransferAction,
+            };
+            self.transact(
+                &root,
+                account.id(),
+                vec![
+                    Action::CreateAccount(CreateAccountAction {}),
+                    Action::Transfer(TransferAction {
+                        deposit: near_primitives::types::Balance::from_near(100),
+                    }),
+                    Action::AddKey(Box::new(AddKeyAction {
+                        public_key: account.secret_key().public_key().to_string().parse()?,
+                        access_key: near_primitives::account::AccessKey::full_access(),
+                    })),
+                ],
+            )
+            .await?;
         }
         account
             .view_access_key(&account.secret_key().public_key())
+            .finality(Finality::Final)
             .await?;
         Ok(account)
     }
@@ -202,6 +240,7 @@ impl Localnet {
         Ok(self
             .worker
             .view(account, method)
+            .finality(Finality::Final)
             .args_json(args)
             .await?
             .json()?)
@@ -215,31 +254,48 @@ impl Localnet {
         args: Value,
         deposit: NearToken,
     ) -> Result<Value> {
-        let outcome = actor
-            .call(target, method)
-            .args_json(args)
-            .deposit(deposit)
-            .max_gas()
-            .transact()
-            .await?
-            .into_result()
-            .with_context(|| format!("{target}.{method}"))?;
-        Ok(outcome.json().unwrap_or(Value::Null))
+        let outcome = self
+            .call_outcome(actor, target, method, args, deposit)
+            .await?;
+        transactions::value(&outcome)
     }
 
     async fn deploy(&self, account: &Account, artifact: &str, args: Value) -> Result<()> {
         let expected = wasm(artifact)?;
         // The SDK's default contract state is None; querying its code would fail.
-        if account.view_account().await?.contract_state == Default::default() {
-            account.deploy(&expected).await?.into_result()?;
+        if account
+            .view_account()
+            .finality(Finality::Final)
+            .await?
+            .contract_state
+            == Default::default()
+        {
+            self.transact(
+                account,
+                account.id(),
+                vec![near_primitives::action::Action::DeployContract(
+                    near_primitives::action::DeployContractAction {
+                        code: expected.clone(),
+                    },
+                )],
+            )
+            .await?;
         } else {
             ensure!(
-                self.worker.view_code(account.id()).await? == expected,
+                self.worker
+                    .view_code(account.id())
+                    .finality(Finality::Final)
+                    .await?
+                    == expected,
                 "{} code differs from current build; reset localnet to redeploy",
                 account.id()
             );
         }
-        let state = self.worker.view_state(account.id()).await?;
+        let state = self
+            .worker
+            .view_state(account.id())
+            .finality(Finality::Final)
+            .await?;
         if !state.contains_key(b"STATE".as_slice()) {
             self.call(
                 account,
@@ -393,6 +449,7 @@ impl Localnet {
             );
             account
                 .view_access_key(&account.secret_key().public_key())
+                .finality(Finality::Final)
                 .await?;
         }
         let project: AccountId = manifest["contracts"]["project"]
@@ -414,7 +471,11 @@ impl Localnet {
             (&token, "test_ft"),
         ] {
             ensure!(
-                self.worker.view_code(address).await? == wasm(artifact)?,
+                self.worker
+                    .view_code(address)
+                    .finality(Finality::Final)
+                    .await?
+                    == wasm(artifact)?,
                 "{address} deployed code does not match current artifacts; reset to redeploy"
             );
         }
@@ -455,121 +516,13 @@ impl Localnet {
             "next_task": state["next_task"]
         }))
     }
-
-    async fn smoke(&self) -> Result<()> {
-        self.check().await?;
-        let owner = self.account("owner")?;
-        let authority = self.account("authority")?;
-        let agent = self.account("agent")?;
-        let project: AccountId = format!("p0.{}", account_id("workspace")?).parse()?;
-        let before = self.view(&project, "get_project", json!({})).await?;
-        ensure!(
-            before["queue_head"] == before["queue_tail"],
-            "smoke requires an empty Project queue"
-        );
-        self.deposit(&owner, &project, 60_000_000, json!({"kind": "fund"}))
-            .await?;
-        let deposit = NearToken::from_near(1);
-        let task = self
-            .call(
-                &agent,
-                &project,
-                "create_task",
-                json!({"amount": "60000000", "purpose": vec![1u8; 32]}),
-                deposit,
-            )
-            .await?;
-        let task_state = self
-            .view(&project, "get_task", json!({"task_id": task}))
-            .await?;
-        self.call(
-            &authority,
-            &project,
-            "approve_request",
-            json!({"request_id": task_state["live_request"]}),
-            deposit,
-        )
-        .await?;
-        let applied = self
-            .call(&authority, &project, "apply", json!({}), deposit)
-            .await?;
-        ensure!(
-            applied["Funded"]["task_id"] == task && applied["Funded"]["amount"] == "60000000",
-            "unexpected allocation result"
-        );
-        ensure!(
-            self.call(
-                &agent,
-                &project,
-                "withdraw",
-                json!({"task_id": task, "amount": "40000000"}),
-                deposit
-            )
-            .await?
-                == true
-        );
-        self.deposit(
-            &agent,
-            &project,
-            15_000_000,
-            json!({"kind": "return", "task_id": task}),
-        )
-        .await?;
-        self.call(
-            &agent,
-            &project,
-            "release",
-            json!({"task_id": task, "amount": "20000000"}),
-            deposit,
-        )
-        .await?;
-        ensure!(
-            self.call(
-                &agent,
-                &project,
-                "finalize",
-                json!({"task_id": task, "report": vec![2u8; 32]}),
-                deposit
-            )
-            .await?
-                == "25000000"
-        );
-        let final_task = self
-            .view(&project, "get_task", json!({"task_id": task}))
-            .await?;
-        let after = self.view(&project, "get_project", json!({})).await?;
-        ensure!(
-            final_task["state"] == "Completed"
-                && final_task["available"] == "0"
-                && final_task["pending_outflow"] == "0"
-                && final_task["expense"] == "25000000"
-        );
-        ensure!(
-            number(&after, "free")? == number(&before, "free")? + 35_000_000,
-            "smoke accounting mismatch"
-        );
-        self.check().await?;
-        let report = json!({
-            "chain": "near",
-            "smoke": "passed",
-            "task_id": task,
-            "state": "Completed",
-            "issued": "60000000",
-            "recovered": "35000000",
-            "expense": "25000000",
-            "project_free": after["free"]
-        });
-        write_json(&self.data.join("last-smoke.json"), &report)?;
-        println!("{}", serde_json::to_string(&report)?);
-        Ok(())
-    }
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let command = std::env::args()
         .nth(1)
-        .context("expected prepare, bootstrap, check or smoke")?;
+        .context("expected prepare, bootstrap, check or bridge")?;
     let data = PathBuf::from(
         std::env::var("APODECT_LOCALNET_DIR").context("APODECT_LOCALNET_DIR is required")?,
     );
@@ -589,7 +542,81 @@ async fn main() -> Result<()> {
             println!("{}", local.check().await?);
             Ok(())
         }
-        "smoke" => local.smoke().await,
+        "bridge" => {
+            let input: Value = serde_json::from_reader(std::io::stdin())?;
+            let result = local.bridge(input).await?;
+            println!("{}", serde_json::to_string(&result)?);
+            Ok(())
+        }
         _ => bail!("unknown localnet command: {command}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn wasm_reads_the_explicit_runtime_artifact_directory() {
+        // Child processes isolate environment changes from concurrent tests and
+        // prove one compiled executable can select either checkout at runtime.
+        if let Ok(expected) = std::env::var("APODECT_TEST_WASM_EXPECT") {
+            match expected.as_str() {
+                "missing" => assert!(
+                    wasm("project")
+                        .unwrap_err()
+                        .to_string()
+                        .contains("APODECT_NEAR_ARTIFACT_DIR is required")
+                ),
+                "relative" => assert!(
+                    wasm("project")
+                        .unwrap_err()
+                        .to_string()
+                        .contains("APODECT_NEAR_ARTIFACT_DIR must be absolute")
+                ),
+                _ => assert_eq!(wasm("project").unwrap(), expected.as_bytes()),
+            }
+            return;
+        }
+
+        let directory = std::env::temp_dir().join(format!(
+            "apodect-near-artifacts-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        for label in ["first-checkout", "second-checkout", "missing", "relative"] {
+            let mut child = Command::new(std::env::current_exe().unwrap());
+            child
+                .args([
+                    "--exact",
+                    "tests::wasm_reads_the_explicit_runtime_artifact_directory",
+                ])
+                .env("APODECT_TEST_WASM_EXPECT", label);
+            match label {
+                "missing" => {
+                    child.env_remove("APODECT_NEAR_ARTIFACT_DIR");
+                }
+                "relative" => {
+                    child.env("APODECT_NEAR_ARTIFACT_DIR", "relative/artifacts");
+                }
+                _ => {
+                    let artifacts = directory.join(label);
+                    fs::create_dir_all(&artifacts).unwrap();
+                    fs::write(artifacts.join("apodect_near_project.wasm"), label).unwrap();
+                    child.env("APODECT_NEAR_ARTIFACT_DIR", artifacts);
+                }
+            }
+            let result = child.output().unwrap();
+            assert!(
+                result.status.success(),
+                "{label}: {}{}",
+                String::from_utf8_lossy(&result.stdout),
+                String::from_utf8_lossy(&result.stderr)
+            );
+        }
+        fs::remove_dir_all(directory).unwrap();
     }
 }

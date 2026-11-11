@@ -11,6 +11,8 @@
 *.key
 .DS_Store
 *~
+__pycache__/
+.ruff_cache/
 
 # Contract dependencies and generated build/test output
 /contracts/**/target/

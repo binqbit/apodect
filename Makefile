@@ -1,9 +1,11 @@
 .PHONY: check check-ethereum check-solana check-near check-localnet fmt
 .PHONY: local-up local-down local-status local-check local-smoke local-reset local-logs
+.PHONY: check-crosschain
 
-CHAIN ?= all
+PYTHON_SOURCES = scripts/crosschain scripts/localnet.py scripts/tests contracts/ethereum/scripts
+CROSSCHAIN_UV = UV_PROJECT_ENVIRONMENT="$(CURDIR)/.localnet/tools/crosschain" PYTHONDONTWRITEBYTECODE=1 uv run --project scripts/crosschain --locked
 
-check: check-ethereum check-solana check-near check-localnet
+check: check-ethereum check-solana check-near check-localnet check-crosschain
 
 check-ethereum:
 	./contracts/ethereum/scripts/check.sh
@@ -18,14 +20,20 @@ fmt:
 	./contracts/ethereum/scripts/fmt.sh
 	./contracts/solana/scripts/fmt.sh
 	./contracts/near/scripts/fmt.sh
+	$(CROSSCHAIN_UV) ruff check --config scripts/crosschain/pyproject.toml --select I --fix $(PYTHON_SOURCES)
+	$(CROSSCHAIN_UV) ruff format --config scripts/crosschain/pyproject.toml $(PYTHON_SOURCES)
 
-# Persistent development chains. Select one with CHAIN=ethereum|solana|near.
+# One local stack: all three chains, contracts, relayer and simulated providers.
 local-up local-down local-status local-check local-smoke local-logs:
-	python3 scripts/localnet.py $(patsubst local-%,%,$@) $(CHAIN)
+	./scripts/localnet.sh $(patsubst local-%,%,$@)
 
-# Reset is explicit and removes the selected chains, deployments and local keys.
 local-reset:
-	python3 scripts/localnet.py reset $(CHAIN) $(if $(filter 1,$(CONFIRM)),--yes,)
+	./scripts/localnet.sh reset $(if $(filter 1,$(CONFIRM)),--yes,)
 
 check-localnet:
 	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts/tests -v
+
+check-crosschain:
+	$(CROSSCHAIN_UV) ruff check --config scripts/crosschain/pyproject.toml $(PYTHON_SOURCES)
+	$(CROSSCHAIN_UV) ruff format --config scripts/crosschain/pyproject.toml --check $(PYTHON_SOURCES)
+	$(CROSSCHAIN_UV) python -m unittest discover -s scripts/crosschain/tests -v

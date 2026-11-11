@@ -1,22 +1,18 @@
 #!/usr/bin/env python3
 """Manage persistent, loopback-only development chains and their local deployments."""
 
-import argparse
 import collections
 import contextlib
-import fcntl
 import json
 import os
-from pathlib import Path
 import shutil
 import signal
 import socket
 import subprocess
-import sys
 import time
 import urllib.error
 import urllib.request
-
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 CHAINS = ("ethereum", "solana", "near")
@@ -50,18 +46,10 @@ def process_identity(pid):
     if pid <= 1:
         return None
     try:
-        if Path("/proc").is_dir():
-            fields = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()
-            if fields[0] == "Z":
-                return None
-            return fields[19]
-        result = subprocess.run(
-            ["ps", "-p", str(pid), "-o", "lstart="],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        return result.stdout.strip() or None
+        fields = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()
+        if fields[0] == "Z":
+            return None
+        return fields[19]
     except (OSError, IndexError):
         return None
 
@@ -104,6 +92,8 @@ class Environment:
         self.chain = chain
         self.root = root
         self.directory = root / ".localnet" / chain
+        if self.directory.is_symlink() or self.directory.parent.is_symlink():
+            raise LocalnetError("local environment directories must not be symlinks")
         self.adapter = root / "contracts" / chain / "scripts" / "localnet.sh"
         self.process_file = self.directory / "process.json"
         self.settings_file = self.directory / "settings.json"
@@ -234,7 +224,7 @@ class Environment:
         selected_ports = configured_ports(self.chain)
         if self.settings_file.exists() and self.ports() != selected_ports:
             raise LocalnetError(
-                f"{self.chain}: port settings changed; use the existing ports or reset this chain"
+                f"{self.chain}: port settings changed; use the existing ports or reset the local environment"
             )
         if self.owned_process():
             self.check()
@@ -300,11 +290,6 @@ class Environment:
         self.validate_manifest()
         self.adapter_command("check")
 
-    def smoke(self):
-        self.check()
-        self.adapter_command("smoke")
-        self.check()
-
     def down(self):
         pid = self.owned_process()
         if pid is None:
@@ -331,19 +316,6 @@ class Environment:
             self.child = None
         print(f"{self.chain}: stopped (data retained)", flush=True)
 
-    def status(self):
-        pid = self.owned_process()
-        state = "stopped"
-        if pid:
-            state = "running" if self.healthy() else "starting/unhealthy"
-        deployment = "deployed" if self.manifest_file.exists() else "not deployed"
-        print(
-            f"{self.chain}: {state}, {deployment}, {self.url()}"
-            + (f", PID {pid}" if pid else ""),
-            flush=True,
-        )
-        return state != "starting/unhealthy"
-
     def reset(self):
         self.down()
         if self.directory.exists():
@@ -365,56 +337,3 @@ class Environment:
             return
         with self.log_file.open(errors="replace") as log:
             print("".join(collections.deque(log, maxlen=60)), end="", flush=True)
-
-
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "command", choices=("up", "down", "status", "check", "smoke", "reset", "logs")
-    )
-    parser.add_argument("chain", nargs="?", default="all", choices=("all", *CHAINS))
-    parser.add_argument("--yes", action="store_true", help="confirm deletion for reset")
-    args = parser.parse_args()
-    if args.command == "reset" and not args.yes:
-        parser.error(
-            "reset deletes selected chain data and local keys; pass --yes to confirm"
-        )
-    os.umask(0o077)
-    data_root = ROOT / ".localnet"
-    if data_root.is_symlink():
-        parser.error(
-            ".localnet must be a directory inside this checkout, not a symbolic link"
-        )
-    data_root.mkdir(mode=0o700, exist_ok=True)
-    chains = CHAINS if args.chain == "all" else (args.chain,)
-    failed = False
-    with (data_root / ".lock").open("a") as lock:
-        if args.command not in ("status", "logs"):
-            try:
-                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except BlockingIOError:
-                print(
-                    "Another localnet command is active in this checkout.",
-                    file=sys.stderr,
-                )
-                return 1
-        for chain in chains:
-            environment = Environment(chain)
-            try:
-                if environment.directory.is_symlink():
-                    raise LocalnetError(
-                        f"Refusing symbolic link: {environment.directory}"
-                    )
-                if getattr(environment, args.command)() is False:
-                    failed = True
-            except (LocalnetError, OSError, KeyError, TypeError) as error:
-                print(f"Error: {error}", file=sys.stderr, flush=True)
-                failed = True
-            except KeyboardInterrupt:
-                print("Interrupted. Existing chain data was retained.", file=sys.stderr)
-                return 130
-    return int(failed)
-
-
-if __name__ == "__main__":
-    sys.exit(main())

@@ -4,13 +4,13 @@
 import hashlib
 import json
 import os
-from pathlib import Path
 import secrets
 import subprocess
 import sys
+import time
 import urllib.parse
 import urllib.request
-
+from pathlib import Path
 
 PACKAGE = Path(__file__).resolve().parents[1]
 CHAIN_ID = 31337
@@ -20,7 +20,17 @@ ARTIFACTS = {
     "token": "out/LocalUSDC.s.sol/LocalUSDC.json",
     "registry": "out/WorkspaceRegistry.sol/WorkspaceRegistry.json",
     "project": "out/ProjectVault.sol/ProjectVault.json",
+    "escrow": "out/RouteEscrow.sol/RouteEscrow.json",
 }
+
+
+class RpcError(RuntimeError):
+    """Retain structured RPC details so read retries admit only the expected error."""
+
+    def __init__(self, method, error):
+        super().__init__(f"{method}: {error}")
+        self.code = error.get("code")
+        self.message = error.get("message", "")
 
 
 def require(condition, message):
@@ -34,9 +44,17 @@ def read_json(path):
 
 def write_json(path, data):
     temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(json.dumps(data, indent=2) + "\n")
-    temporary.chmod(0o600)
+    with temporary.open("w") as handle:
+        os.fchmod(handle.fileno(), 0o600)
+        handle.write(json.dumps(data, indent=2) + "\n")
+        handle.flush()
+        os.fsync(handle.fileno())
     temporary.replace(path)
+    directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
 
 
 def run(*args, env=None):
@@ -92,7 +110,8 @@ class LocalEthereum:
             request, timeout=10
         ) as response:
             payload = json.load(response)
-        require("error" not in payload, f"{method}: {payload.get('error')}")
+        if "error" in payload:
+            raise RpcError(method, payload["error"])
         return payload["result"]
 
     def assert_local_chain(self):
@@ -128,7 +147,7 @@ class LocalEthereum:
             password_path.write_text(password + "\n")
             password_path.chmod(0o600)
             accounts = {}
-            for role in ("owner", "authority", "agent"):
+            for role in ("owner", "authority", "agent", "liquidity"):
                 key_file = keys / f"{role}.json"
                 require(
                     not key_file.exists(),
@@ -184,11 +203,11 @@ class LocalEthereum:
     def accounts(self):
         accounts = read_json(self.accounts_path)
         require(
-            set(accounts) == {"owner", "authority", "agent"},
+            set(accounts) == {"owner", "authority", "agent", "liquidity"},
             "Invalid local account roles",
         )
         require(
-            len({a["address"].lower() for a in accounts.values()}) == 3,
+            len({a["address"].lower() for a in accounts.values()}) == len(accounts),
             "Local roles must use distinct accounts",
         )
         for account in accounts.values():
@@ -221,6 +240,7 @@ class LocalEthereum:
         require(self.initial_state_path.exists(), "Run prepare before serve")
         state = self.directory / "state.json"
         initial_state = state if state.exists() else self.initial_state_path
+        # Empty blocks advance finality even when no user sends another transaction.
         os.execvp(
             "anvil",
             [
@@ -236,6 +256,11 @@ class LocalEthereum:
                 "--accounts",
                 "0",
                 "--quiet",
+                "--block-time",
+                "1",
+                "--slots-in-an-epoch",
+                "1",
+                "--mixed-mining",
                 "--state-interval",
                 "1",
                 "--load-state",
@@ -250,7 +275,21 @@ class LocalEthereum:
         require(path.exists(), f"Missing {name} build artifact; run prepare")
         return read_json(path)
 
-    def transact(self, role, target=None, signature=None, *args, creation=None):
+    def transact(
+        self, role, target=None, signature=None, *args, creation=None, intent_id=None
+    ):
+        """Submit a native call and return only after finality.
+
+        An intent records immutable signed bytes before broadcast. Its journal also
+        blocks fresh transactions by that signer until the saved hash is finalized.
+        The bridge dispatch lock serializes coordinated submissions across processes.
+        """
+        if intent_id is not None:
+            require(creation is None, "Journaled intents require a contract call")
+            return self._journaled_transaction(
+                intent_id, role, target, signature, *args
+            )
+        self._require_clear_transactions(role)
         account = read_json(self.accounts_path)[role]
         command = [
             "cast",
@@ -274,11 +313,141 @@ class LocalEthereum:
             command += [target, signature, *map(str, args)]
         receipt = json.loads(run(*command))
         require(int(receipt["status"], 16) == 1, "Local transaction reverted")
+        self.wait_finalized(receipt)
         return receipt
+
+    def _journaled_transaction(self, intent_id, role, target, signature, *args):
+        """Persist before broadcast; retries reuse the exact signed bytes and nonce."""
+        path = self.transaction_path(intent_id)
+        binding = {
+            "role": role,
+            "target": target.lower(),
+            "signature": signature,
+            "args": list(map(str, args)),
+        }
+        if path.exists():
+            record = read_json(path)
+            require(
+                record["binding"] == binding,
+                "transfer_id was already used for another payment",
+            )
+        else:
+            self._require_clear_transactions(role)
+            account = read_json(self.accounts_path)[role]
+            raw = run(
+                "cast",
+                "mktx",
+                target,
+                signature,
+                *map(str, args),
+                "--rpc-url",
+                self.url,
+                "--no-proxy",
+                "--chain",
+                CHAIN_ID,
+                "--keystore",
+                account["key_file"],
+                "--password-file",
+                account["password_file"],
+            )
+            require(raw.startswith("0x"), "Unexpected signed transaction encoding")
+            record = {
+                "binding": binding,
+                "raw_transaction": raw,
+                "tx_hash": run("cast", "keccak", raw),
+            }
+            path.parent.mkdir(mode=0o700, exist_ok=True)
+            write_json(path, record)
+        tx_hash = record["tx_hash"]
+        receipt = self.rpc("eth_getTransactionReceipt", [tx_hash])
+        if receipt is None:
+            try:
+                submitted = self.rpc(
+                    "eth_sendRawTransaction", [record["raw_transaction"]]
+                )
+                require(submitted.lower() == tx_hash.lower(), "Broadcast hash mismatch")
+            except RuntimeError:
+                receipt = self.rpc("eth_getTransactionReceipt", [tx_hash])
+                if receipt is None:
+                    raise RuntimeError(
+                        f"Payment outcome unknown; retain transfer_id and reconcile {tx_hash}"
+                    ) from None
+        for _ in range(100):
+            if receipt is not None:
+                require(int(receipt["status"], 16) == 1, f"Payment reverted: {tx_hash}")
+                self.wait_finalized(receipt)
+                return receipt
+            time.sleep(0.1)
+            receipt = self.rpc("eth_getTransactionReceipt", [tx_hash])
+        raise RuntimeError(
+            f"Payment outcome unknown; retain transfer_id and reconcile {tx_hash}"
+        )
+
+    def _require_clear_transactions(self, role):
+        for path in (self.directory / "bridge").glob("payment-*.json"):
+            pending = read_json(path)
+            if pending["binding"]["role"] == role:
+                receipt = self.rpc("eth_getTransactionReceipt", [pending["tx_hash"]])
+                require(
+                    receipt is not None,
+                    f"Reconcile journaled {role} payment before a new transaction: {pending['tx_hash']}",
+                )
+                self.wait_finalized(receipt)
+
+    def transaction_path(self, intent_id):
+        require(
+            isinstance(intent_id, str) and intent_id,
+            "transfer_id must be a nonempty string",
+        )
+        return (
+            self.directory
+            / "bridge"
+            / ("payment-" + hashlib.sha256(intent_id.encode()).hexdigest() + ".json")
+        )
+
+    def wait_finalized(self, receipt):
+        """Verify inclusion in the canonical finalized block without resubmitting."""
+        deadline = time.monotonic() + 30
+        height = int(receipt["blockNumber"], 16)
+        while time.monotonic() < deadline:
+            finalized = self.rpc("eth_getBlockByNumber", ["finalized", False])
+            if finalized is not None and int(finalized["number"], 16) >= height:
+                block = self.rpc(
+                    "eth_getBlockByNumber", [receipt["blockNumber"], False]
+                )
+                require(
+                    block is not None
+                    and block["hash"].lower() == receipt["blockHash"].lower(),
+                    "Transaction receipt is not in the canonical finalized chain",
+                )
+                return
+            time.sleep(0.2)
+        raise RuntimeError(
+            "Transaction included but not finalized; reconcile its existing hash: "
+            + receipt["transactionHash"]
+        )
 
     def values(self, target, signature, *args):
         data = run("cast", "calldata", signature, *map(str, args))
-        result = self.rpc("eth_call", [{"to": target, "data": data}, "latest"])[2:]
+        deadline = time.monotonic() + 30
+        while True:
+            try:
+                encoded = self.rpc(
+                    "eth_call", [{"to": target, "data": data}, "finalized"]
+                )
+                break
+            except RpcError as error:
+                # Anvil restores the saved head's state without older state snapshots.
+                # Its finalized tag can lag that head for two interval-mined blocks.
+                # Retry only this read until finalized state exists; never use latest.
+                if (
+                    error.code != -32602
+                    or not error.message.startswith("BlockOutOfRangeError:")
+                    or time.monotonic() >= deadline
+                ):
+                    raise
+                time.sleep(0.2)
+        result = encoded[2:]
         require(result and len(result) % 64 == 0, f"Unexpected result from {signature}")
         return [
             int(result[index : index + 64], 16) for index in range(0, len(result), 64)
@@ -331,8 +500,13 @@ class LocalEthereum:
             accounts["owner"]["address"],
             1_000_000 * UNIT,
         )
-        self.transact("owner", token, "approve(address,uint256)", project, 2**256 - 1)
-        self.transact("owner", project, "fund(uint256,uint256)", 10_000 * UNIT, 0)
+        self.transact(
+            "owner",
+            token,
+            "mint(address,uint256)",
+            accounts["liquidity"]["address"],
+            1_000_000 * UNIT,
+        )
         contracts = {"token": token, "registry": registry, "project": project}
         artifacts = {}
         for name, address in contracts.items():
@@ -447,9 +621,11 @@ class LocalEthereum:
         )
         free = self.values(project, "freeBalance()")[0]
         allocated = self.values(project, "allocatedBalance()")[0]
+        held = self.values(project, "heldBalance()")[0]
         balance = self.values(token, "balanceOf(address)", project)[0]
         require(
-            free + allocated <= balance, "Project ledger exceeds actual token custody"
+            free + allocated + held <= balance,
+            "Project ledger exceeds actual token custody",
         )
         print(
             json.dumps(
@@ -465,91 +641,11 @@ class LocalEthereum:
         )
         return manifest
 
-    def smoke(self):
-        manifest = self.check()
-        token, project = (manifest["contracts"][name] for name in ("token", "project"))
-        accounts = manifest["accounts"]
-        require(
-            self.values(project, "queueHead()")[0]
-            == self.values(project, "queueLength()")[0],
-            "Smoke requires an empty Project queue; finish existing work first",
-        )
-        allocation, withdrawn, returned, released = (
-            60 * UNIT,
-            40 * UNIT,
-            15 * UNIT,
-            20 * UNIT,
-        )
-        free_before = self.values(project, "freeBalance()")[0]
-        if free_before < allocation:
-            top_up = 10_000 * UNIT
-            self.transact(
-                "owner",
-                token,
-                "mint(address,uint256)",
-                accounts["owner"]["address"],
-                top_up,
-            )
-            self.transact("owner", project, "fund(uint256,uint256)", top_up, 0)
-            free_before += top_up
-        purpose = "0x" + secrets.token_hex(32)
-        self.transact(
-            "agent", project, "createTask(uint256,bytes32)", allocation, purpose
-        )
-        task_id = self.values(project, "taskCount()")[0]
-        request_id = self.values(project, "getTask(uint256)", task_id)[7]
-        self.transact("authority", project, "approveRequest(uint256)", request_id)
-        require(
-            self.values(project, "freeBalance()")[0] == free_before,
-            "Approval unexpectedly reserved principal",
-        )
-        self.transact("authority", project, "applyNext()")
-        require(
-            self.values(project, "getTask(uint256)", task_id)[4] == allocation,
-            "Full allocation was not assigned",
-        )
-        agent_before = self.values(
-            token, "balanceOf(address)", accounts["agent"]["address"]
-        )[0]
-        self.transact("agent", project, "withdraw(uint256,uint256)", task_id, withdrawn)
-        self.transact("agent", token, "approve(address,uint256)", project, returned)
-        self.transact(
-            "agent", project, "returnFunds(uint256,uint256)", task_id, returned
-        )
-        self.transact("agent", project, "release(uint256,uint256)", task_id, released)
-        self.transact("agent", project, "finalize(uint256,bytes32)", task_id, purpose)
-        task = self.values(project, "getTask(uint256)", task_id)
-        expense = withdrawn - returned
-        require(
-            task[1] == 4 and task[3] == 1 and task[4] == 0 and task[7] == 0,
-            "Task did not close its rights",
-        )
-        require(
-            task[5] == allocation and task[6] == returned + released,
-            "Task principal counters differ",
-        )
-        require(
-            self.values(project, "taskExpense(uint256)", task_id)[0] == expense,
-            "Expense mismatch",
-        )
-        require(
-            self.values(project, "freeBalance()")[0] == free_before - expense,
-            "Project accounting mismatch",
-        )
-        require(
-            self.values(token, "balanceOf(address)", accounts["agent"]["address"])[0]
-            == agent_before + expense,
-            "Agent's actual token balance does not match the lifecycle",
-        )
-        result = {
-            "chain": "ethereum",
-            "smoke": "passed",
-            "task_id": task_id,
-            "request_id": request_id,
-            "expense": str(expense),
-            "block_number": int(self.rpc("eth_blockNumber", []), 16),
-        }
-        write_json(self.directory / "last-smoke.json", result)
+    def bridge(self):
+        from bridge import EthereumBridge
+
+        self.assert_local_chain()
+        result = EthereumBridge(self).run(json.load(sys.stdin))
         print(json.dumps(result))
 
 
@@ -557,8 +653,8 @@ def main():
     os.umask(0o077)
     require(
         len(sys.argv) == 2
-        and sys.argv[1] in {"prepare", "serve", "bootstrap", "check", "smoke"},
-        "Usage: localnet.sh {prepare|serve|bootstrap|check|smoke}",
+        and sys.argv[1] in {"prepare", "serve", "bootstrap", "check", "bridge"},
+        "Usage: localnet.sh {prepare|serve|bootstrap|check|bridge}",
     )
     getattr(LocalEthereum(), sys.argv[1])()
 

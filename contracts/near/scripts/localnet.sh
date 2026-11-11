@@ -5,6 +5,7 @@ umask 077
 near_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$near_root"
 source "$near_root/scripts/toolchain.sh"
+export APODECT_NEAR_ARTIFACT_DIR="$near_root/artifacts"
 
 : "${APODECT_LOCALNET_DIR:?Set APODECT_LOCALNET_DIR to an absolute persistent data directory}"
 [[ "$APODECT_LOCALNET_DIR" = /* ]] || { echo 'APODECT_LOCALNET_DIR must be absolute' >&2; exit 1; }
@@ -38,12 +39,12 @@ case "${1:-}" in
             --rpc-addr "127.0.0.1:$APODECT_RPC_PORT" \
             --network-addr "127.0.0.1:$APODECT_NETWORK_PORT"
         ;;
-    bootstrap|check|smoke)
+    bootstrap|check|bridge)
         near_client="$(cat "$APODECT_LOCALNET_DIR/client.path")"
         exec "$near_client" "$1"
         ;;
     *)
-        echo 'Usage: localnet.sh {prepare|serve|bootstrap|check|smoke}' >&2
+        echo 'Usage: localnet.sh {prepare|serve|bootstrap|check|bridge}' >&2
         exit 2
         ;;
 esac
