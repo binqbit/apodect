@@ -760,6 +760,7 @@ fn allocated_close_proof_resolves_abort_even_without_allocation_receipt() {
 #[test]
 fn queue_tombstone_progress_is_bounded_and_persisted() {
     let mut c = fixture();
+    assert!(c.get_queue_head().is_null());
     for id in 0..205 {
         c.queue.push(uint(id));
     }
@@ -767,6 +768,34 @@ fn queue_tombstone_progress_is_bounded_and_persisted() {
     assert_eq!(c.advance_queue(), 200);
     assert_eq!(c.advance_queue(), 205);
     assert_eq!(c.advance_queue(), 205);
+    assert!(c.get_queue_head().is_null());
+
+    request(&mut c, 0, 60);
+    request(&mut c, 1, 20);
+    context("authority");
+    c.approve(hex(&uint(1)), hex(&uint(0)));
+    c.approve(hex(&uint(1)), hex(&uint(1)));
+    assert_eq!(
+        c.get_queue_head(),
+        c.get_request(hex(&uint(1)), hex(&uint(0)))
+    );
+    assert_eq!(c.get_queue_head()["status"], "Queued");
+
+    let mut completed = snapshot(1, 5, 100);
+    completed.words[7] = uint(0);
+    completed.words[8] = uint(3);
+    c.consume(completed);
+    assert_eq!(c.head, 205);
+    assert_eq!(c.get_queue_head()["status"], "Removed");
+
+    context("relayer");
+    assert_eq!(c.advance_queue(), 206);
+    assert_eq!(
+        c.get_queue_head(),
+        c.get_request(hex(&uint(1)), hex(&uint(1)))
+    );
+    assert_eq!(c.get_queue_head()["status"], "Queued");
+    assert_eq!(c.advance_queue(), 206);
 }
 
 #[test]

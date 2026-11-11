@@ -892,6 +892,14 @@ impl Coordinator {
             .unwrap_or_default()
     }
 
+    pub fn get_queue_head(&self) -> Value {
+        self.queue
+            .get(self.head)
+            .and_then(|key| self.requests.get(key))
+            .map(|request| self.get_request(hex(&request.domain), hex(&request.id)))
+            .unwrap_or_default()
+    }
+
     pub fn get_task(&self, domain: String, task: String) -> Value {
         self.tasks
             .get(&identity(word(&domain), word(&task)))
