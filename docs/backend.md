@@ -2,8 +2,8 @@
 
 The Rust workspace in `apps/` has three executables: `apodect-backend` hosts
 Actix Web, `apodect-worker` reconciles chains and publishes events, and `apodect`
-exposes the same services through JSON on stdin. The web UI and business HTTP
-routes remain separate work. Start the stack with the
+exposes the same services through JSON on stdin. The React application uses the
+same-origin `/api` routes. Start the stack with the
 [application development guide](application-development.md).
 
 ## Ownership and accounting
@@ -51,6 +51,27 @@ Project changes and their outbox events commit together. Kafka publication is
 at least once: consumers must deduplicate the stable event UUID. The outbox row
 is deleted only after broker acknowledgement. There are no unused consumers or
 placeholder queues.
+
+## Browser interface
+
+The API groups account authentication, registered Project views, immutable text
+references and unsigned actions. `/api/projects/{key}/actions/local`,
+`actions/coordinator` and `actions/apply` delegate to the existing action services;
+the browser does not construct a second set of business rules. Amounts and
+contract IDs cross this interface as decimal strings to preserve their precision.
+
+Browser sessions use an HttpOnly, SameSite Strict cookie, with Secure enabled for
+HTTPS. Mutations require the configured `APP_ORIGIN`; responses are not cached.
+The RPC bridge accepts only the native methods needed by wallet signing and
+confirmation, targets configured nodes, and keeps provider credentials private.
+Worker retries remain operator actions rather than public API endpoints.
+
+The browser records transaction identity before broadcasting signed bytes. A
+wallet that submits internally may lose its response before returning a hash;
+that attempt remains unresolved until a matching transaction is found. Recovery
+checks the actor, exact action and nonce context before accepting a supplied hash.
+A timeout never makes a new payment safe. Public deployment still needs traffic
+limits at its trusted ingress and the provider prerequisites documented below.
 
 ## Profiles and wallet signing
 

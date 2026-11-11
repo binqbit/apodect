@@ -6,10 +6,11 @@ PostgreSQL, Kafka, a Rust worker and the local blockchain environment. The
 the simulated MPC/liquidity providers. The separate worker indexes contracts,
 relays authorized commands and reconciles finalized receipts.
 
-The frontend displays Hello World. The HTTP process initializes the backend
-services; business HTTP routes remain for the API stage. The operational CLI
-exposes the internal services now; see [backend workflows](backend.md). Local
-blockchain transactions are real; external provider behavior is simulated.
+The web application includes wallet sign-in, linked profiles and project workspaces
+for tasks, approvals, funding, invoices and recovery. The HTTP API prepares unsigned
+actions; users sign in their own wallets. The operational CLI exposes the same
+services; see [backend workflows](backend.md). Local blockchain transactions are
+real; external provider behavior is simulated.
 
 ## Local startup
 
@@ -47,15 +48,15 @@ The private directory protects the files on the host; their read permissions
 allow both PostgreSQL and the backend's UID 1000 to use their mounted secrets.
 `.secrets/` is ignored by Git. Keep a secure copy of these credentials.
 
-| Service      | Local address         | Purpose                                             |
-| ------------ | --------------------- | --------------------------------------------------- |
-| Frontend     | http://localhost:3000 | Hello World; `/api` proxies to the backend.         |
-| Backend      | http://localhost:3001 | Returns `404` until routes are implemented.         |
-| PostgreSQL   | `127.0.0.1:5432`      | Database and application role: `apodect`.           |
-| Kafka        | `127.0.0.1:9092`      | Broker for host tools; containers use `kafka:9092`. |
-| Ethereum RPC | http://localhost:8545 | Local Anvil chain.                                  |
-| Solana RPC   | http://localhost:8899 | Local validator; WebSocket port 8900.               |
-| NEAR RPC     | http://localhost:3030 | Local sandbox chain.                                |
+| Service      | Local address         | Purpose                                         |
+| ------------ | --------------------- | ----------------------------------------------- |
+| Frontend     | http://localhost:3000 | Web application; `/api` proxies to the backend. |
+| Backend      | http://localhost:3001 | Same-origin JSON API under `/api`.              |
+| PostgreSQL   | `127.0.0.1:5432`      | Database and application role: `apodect`.       |
+| Kafka        | `127.0.0.1:9092`      | Host broker; containers use `kafka:9092`.       |
+| Ethereum RPC | http://localhost:8545 | Local Anvil chain.                              |
+| Solana RPC   | http://localhost:8899 | Local validator; WebSocket port 8900.           |
+| NEAR RPC     | http://localhost:3030 | Local sandbox chain.                            |
 
 Published development ports bind only to loopback. Kafka does not create topics
 automatically; the worker creates `apodect.events`. Its single broker also acts as the KRaft controller; this provides
@@ -63,6 +64,53 @@ no high availability.
 
 Use `docker compose logs -f` for startup logs and `docker compose down` to stop.
 The localnet container shuts down its nodes and services before exiting.
+
+## Using the workspace
+
+Open http://localhost:3000. Signing in creates a profile; linking another wallet
+requires a signature from that wallet. Roles belong to each Project: its owner
+appoints the manager (the contract’s `authority`), while any agent can create a
+local task request. Selecting a network or connecting a wallet does not grant
+permissions. For full owner access, link the NEAR owner account and the local
+owner wallets used to fund each network. The manager signs through its NEAR
+account; an agent signs through the task’s execution network. Projects currently
+come from deployment configuration; the web application manages these registered
+deployments.
+
+Use **Tasks & queue** to request and approve budgets, then start funding for the
+head of the approval queue. **Funding** shows each network’s liquidity and owner
+invoices. **Activity** separates submitted operations, completed transfers and
+plans needing intervention. A successful wallet transaction does not by itself
+mean a cross-chain allocation is ready. Uncertain wallet submissions appear in
+**Account & wallets** and must be reconciled before another payment.
+
+Purpose descriptions and completion reports are stored as immutable text with an
+on-chain hash. The author and current verified project owner/manager can read the
+text. An external hash may have no description in this deployment.
+
+For local testing, export a disposable wallet and import its JSON through
+**Account & wallets → Use a local development wallet**:
+
+```sh
+docker compose exec localnet ./scripts/localnet.sh export-wallet ethereum agent
+mkdir -p .localnet/wallets
+chmod 0700 .localnet/wallets
+docker compose cp localnet:/app/.localnet/wallets/agent.ethereum.json .localnet/wallets/
+chmod 0600 .localnet/wallets/agent.ethereum.json
+```
+
+Replace `ethereum agent` with `near authority` for manager actions, or `near owner`
+for project controls. `solana` is also supported. With the native launcher, run
+`./scripts/localnet.sh export-wallet <chain> <role>` directly. Exports stay in the
+Git-ignored `.localnet/wallets/` directory; the command prints only their paths.
+Use separate browser profiles to test separate people. To test one person using
+several networks, link their wallets within the same profile.
+
+Imported test keys remain in browser memory and disappear on logout or reload;
+the backend never receives them. This importer is available only on loopback in
+a simulator deployment. Public networks use installed Ethereum/Solana wallets or
+MyNearWallet. Keep the application URL equal to `APP_ORIGIN`; mutations from a
+different origin are rejected.
 
 ## Development and local workflows
 

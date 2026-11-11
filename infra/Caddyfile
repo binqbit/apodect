@@ -1,5 +1,10 @@
 {$SITE_ADDRESS} {
 	encode zstd gzip
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy no-referrer
+	}
 
 	@api path /api /api/*
 	handle @api {
