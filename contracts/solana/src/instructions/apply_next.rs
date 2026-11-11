@@ -23,6 +23,7 @@ pub struct ApplyNext<'info> {
 }
 
 pub fn handler(ctx: Context<ApplyNext>) -> Result<()> {
+    ctx.accounts.project.standalone()?;
     let project = &mut ctx.accounts.project;
     let head = &mut ctx.accounts.head;
     require!(

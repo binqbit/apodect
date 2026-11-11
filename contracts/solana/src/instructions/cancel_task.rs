@@ -22,6 +22,7 @@ pub struct CancelTask<'info> {
 }
 
 pub fn handler(ctx: Context<CancelTask>) -> Result<()> {
+    ctx.accounts.project.standalone()?;
     require_keys_eq!(
         ctx.accounts.actor.key(),
         ctx.accounts.workspace.owner,

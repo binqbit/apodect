@@ -21,6 +21,7 @@ pub struct RespondInvoice<'info> {
 }
 
 pub fn handler(ctx: Context<RespondInvoice>, contribution: u64, response: [u8; 32]) -> Result<()> {
+    ctx.accounts.project.standalone()?;
     let invoice = &mut ctx.accounts.invoice;
     require!(!invoice.closed, ContractError::InvoiceClosed);
     invoice.closed = true;

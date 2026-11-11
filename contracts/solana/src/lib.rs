@@ -1,5 +1,6 @@
 use anchor_lang::prelude::*;
 
+pub mod bridge;
 pub mod errors;
 pub mod events;
 mod helpers;
@@ -116,5 +117,47 @@ pub mod apodect_solana {
         response: [u8; 32],
     ) -> Result<()> {
         instructions::respond_invoice::handler(ctx, contribution, response)
+    }
+
+    pub fn bind_coordinator(
+        ctx: Context<BindCoordinator>,
+        domain: [u8; 32],
+        command_key: [u8; 64],
+    ) -> Result<()> {
+        instructions::bind_coordinator::handler(ctx, domain, command_key)
+    }
+
+    pub fn execute_command(
+        ctx: Context<ExecuteCommand>,
+        bytes: [u8; 384],
+        signature: [u8; 64],
+        recovery_id: u8,
+    ) -> Result<()> {
+        instructions::execute_command::handler(ctx, bytes, signature, recovery_id)
+    }
+
+    pub fn collect_route(ctx: Context<CollectRoute>) -> Result<()> {
+        instructions::collect_route::handler(ctx)
+    }
+
+    pub fn record_checkpoint(
+        ctx: Context<RecordCheckpoint>,
+        observation: [u8; 32],
+        task: [u8; 32],
+        request: [u8; 32],
+        plan: [u8; 32],
+        route: [u8; 32],
+        operation: [u8; 32],
+    ) -> Result<()> {
+        instructions::checkpoint::handler(ctx, observation, task, request, plan, route, operation)
+    }
+
+    pub fn fund_coordinated(
+        ctx: Context<FundCoordinated>,
+        funding_id: [u8; 32],
+        invoice_id: [u8; 32],
+        amount: u64,
+    ) -> Result<()> {
+        instructions::fund_coordinated::handler(ctx, funding_id, invoice_id, amount)
     }
 }

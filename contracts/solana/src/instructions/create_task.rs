@@ -42,6 +42,7 @@ pub fn handler(ctx: Context<CreateTask>, amount: u64, reference: [u8; 32]) -> Re
         request_count: 0,
         pending: None,
         report: [0; 32],
+        control_nonce: 0,
     });
     initialize_request(
         &mut ctx.accounts.request,

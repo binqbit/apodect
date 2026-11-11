@@ -52,6 +52,10 @@ pub fn handler(ctx: Context<CreateProject>, authority: Pubkey) -> Result<()> {
         approval_count: 0,
         head: None,
         tail: None,
+        domain: [0; 32],
+        command_key: [0; 64],
+        held: 0,
+        checkpoint_sequence: 0,
     });
     workspace.project_count = add(workspace.project_count, 1)?;
     Ok(())

@@ -33,6 +33,7 @@ pub struct RestoreBudget<'info> {
 }
 
 pub fn handler(ctx: Context<RestoreBudget>, amount: u64, reference: [u8; 32]) -> Result<()> {
+    ctx.accounts.project.standalone()?;
     let task = &mut ctx.accounts.task;
     require!(
         task.lifecycle == TaskLifecycle::Active && task.paused && task.issued > 0,

@@ -36,6 +36,7 @@ pub struct WithdrawFree<'info> {
 }
 
 pub fn handler(ctx: Context<WithdrawFree>, amount: u64) -> Result<()> {
+    ctx.accounts.project.standalone()?;
     positive(amount)?;
     require!(
         amount <= ctx.accounts.project.free,

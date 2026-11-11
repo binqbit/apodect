@@ -23,6 +23,7 @@ pub struct Reclaim<'info> {
 }
 
 pub fn handler(ctx: Context<Reclaim>, amount: u64) -> Result<()> {
+    ctx.accounts.project.standalone()?;
     require!(ctx.accounts.task.paused, ContractError::InvalidTaskState);
     release(
         &mut ctx.accounts.project,

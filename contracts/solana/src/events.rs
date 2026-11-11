@@ -66,3 +66,20 @@ pub fn event_with_stop(
         stop_reason
     });
 }
+
+#[event]
+pub struct BridgeTransition {
+    pub project: Pubkey,
+    pub operation: [u8; 32],
+    pub action: u8,
+    pub result: [u8; 32],
+}
+
+#[event]
+pub struct BridgeCollection {
+    pub project: Pubkey,
+    pub route: [u8; 32],
+    pub kind: u8,
+    pub amount: u64,
+    pub received: u64,
+}

@@ -130,3 +130,33 @@ pub(crate) use respond_invoice::__client_accounts_respond_invoice;
 #[cfg(feature = "cpi")]
 pub(crate) use respond_invoice::__cpi_client_accounts_respond_invoice;
 pub use respond_invoice::RespondInvoice;
+
+pub mod bind_coordinator;
+pub(crate) use bind_coordinator::__client_accounts_bind_coordinator;
+#[cfg(feature = "cpi")]
+pub(crate) use bind_coordinator::__cpi_client_accounts_bind_coordinator;
+pub use bind_coordinator::BindCoordinator;
+
+pub mod execute_command;
+pub(crate) use execute_command::__client_accounts_execute_command;
+#[cfg(feature = "cpi")]
+pub(crate) use execute_command::__cpi_client_accounts_execute_command;
+pub use execute_command::ExecuteCommand;
+
+pub mod collect_route;
+pub(crate) use collect_route::__client_accounts_collect_route;
+#[cfg(feature = "cpi")]
+pub(crate) use collect_route::__cpi_client_accounts_collect_route;
+pub use collect_route::CollectRoute;
+
+pub mod checkpoint;
+pub(crate) use checkpoint::__client_accounts_record_checkpoint;
+#[cfg(feature = "cpi")]
+pub(crate) use checkpoint::__cpi_client_accounts_record_checkpoint;
+pub use checkpoint::RecordCheckpoint;
+
+pub mod fund_coordinated;
+pub(crate) use fund_coordinated::__client_accounts_fund_coordinated;
+#[cfg(feature = "cpi")]
+pub(crate) use fund_coordinated::__cpi_client_accounts_fund_coordinated;
+pub use fund_coordinated::FundCoordinated;

@@ -17,6 +17,7 @@ pub struct SetAuthority<'info> {
 }
 
 pub fn handler(ctx: Context<SetAuthority>, authority: Pubkey) -> Result<()> {
+    ctx.accounts.project.standalone()?;
     require!(authority != Pubkey::default(), ContractError::Unauthorized);
     ctx.accounts.project.authority = authority;
 

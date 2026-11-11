@@ -22,6 +22,7 @@ pub struct PauseTask<'info> {
 }
 
 pub fn handler(ctx: Context<PauseTask>) -> Result<()> {
+    ctx.accounts.project.standalone()?;
     ctx.accounts.task.nonterminal()?;
     require!(!ctx.accounts.task.paused, ContractError::InvalidTaskState);
     ctx.accounts.task.paused = true;

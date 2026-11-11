@@ -25,6 +25,7 @@ pub struct CreateInvoice<'info> {
 }
 
 pub fn handler(ctx: Context<CreateInvoice>, amount: u64, reference: [u8; 32]) -> Result<()> {
+    ctx.accounts.project.standalone()?;
     positive(amount)?;
     ctx.accounts.invoice.set_inner(Invoice {
         project: ctx.accounts.project.key(),

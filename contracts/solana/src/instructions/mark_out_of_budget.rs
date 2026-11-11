@@ -20,6 +20,7 @@ pub struct MarkOutOfBudget<'info> {
 }
 
 pub fn handler(ctx: Context<MarkOutOfBudget>) -> Result<()> {
+    ctx.accounts.project.standalone()?;
     ctx.accounts.task.nonterminal()?;
     require!(
         ctx.accounts.task.lifecycle != TaskLifecycle::OutOfBudget,

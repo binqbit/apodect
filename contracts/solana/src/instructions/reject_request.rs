@@ -28,6 +28,7 @@ pub struct RejectRequest<'info> {
 }
 
 pub fn handler(ctx: Context<RejectRequest>) -> Result<()> {
+    ctx.accounts.project.standalone()?;
     require!(
         ctx.accounts.tail.is_none(),
         ContractError::WrongQueueAccount

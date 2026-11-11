@@ -14,3 +14,6 @@ mod authorization;
 
 #[path = "runtime/asset_safety.rs"]
 mod asset_safety;
+
+#[path = "runtime/bridge.rs"]
+mod bridge;

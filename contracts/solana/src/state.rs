@@ -24,6 +24,10 @@ pub struct Project {
     pub approval_count: u64,
     pub head: Option<Pubkey>,
     pub tail: Option<Pubkey>,
+    pub domain: [u8; 32],
+    pub command_key: [u8; 64],
+    pub held: u64,
+    pub checkpoint_sequence: u64,
 }
 
 #[account]
@@ -40,6 +44,7 @@ pub struct Task {
     pub request_count: u64,
     pub pending: Option<Pubkey>,
     pub report: [u8; 32],
+    pub control_nonce: u64,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, InitSpace, Debug)]
@@ -116,4 +121,11 @@ pub struct Invoice {
     pub intended_contribution: u64,
     pub response: [u8; 32],
     pub received: u64,
+}
+
+impl Project {
+    pub fn standalone(&self) -> Result<()> {
+        require!(self.domain == [0; 32], ContractError::CoordinatedProject);
+        Ok(())
+    }
 }

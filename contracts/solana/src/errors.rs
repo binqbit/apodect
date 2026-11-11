@@ -38,4 +38,24 @@ pub enum ContractError {
     InvoiceClosed,
     #[msg("Project asset must be a six-decimal legacy SPL mint")]
     InvalidMint,
+    #[msg("This action belongs to the bound coordinator")]
+    CoordinatedProject,
+    #[msg("Invalid coordination binding or fresh Project required")]
+    InvalidBinding,
+    #[msg("Invalid canonical command fields")]
+    InvalidCommand,
+    #[msg("Invalid command signature")]
+    InvalidSignature,
+    #[msg("Command has expired")]
+    CommandExpired,
+    #[msg("Command ID was invalidated or has a different digest")]
+    CommandConflict,
+    #[msg("Wrong bridge account, identity, or account owner")]
+    WrongBridgeAccount,
+    #[msg("Plan is missing, closed, allocated, or insufficiently held")]
+    InvalidPlan,
+    #[msg("Route is missing, registered, incomplete, or inconsistent")]
+    InvalidRoute,
+    #[msg("Task control nonce does not match")]
+    WrongControlNonce,
 }

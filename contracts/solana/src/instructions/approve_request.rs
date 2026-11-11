@@ -29,6 +29,7 @@ pub struct ApproveRequest<'info> {
 }
 
 pub fn handler(ctx: Context<ApproveRequest>) -> Result<()> {
+    ctx.accounts.project.standalone()?;
     let task = &ctx.accounts.task;
     task.nonterminal()?;
     require!(

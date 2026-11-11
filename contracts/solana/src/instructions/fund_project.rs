@@ -39,6 +39,7 @@ pub struct FundProject<'info> {
 
 pub fn handler(ctx: Context<FundProject>, amount: u64) -> Result<()> {
     positive(amount)?;
+    ctx.accounts.project.standalone()?;
     let accounts = ctx.accounts;
     let free = add(accounts.project.free, amount)?;
     if let Some(invoice) = accounts.invoice.as_mut() {
