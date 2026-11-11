@@ -58,10 +58,18 @@ export function Money({
   );
 }
 
-export function Address({ value }: { value: string }) {
+export function Address({
+  value,
+  full = false,
+}: {
+  value: string;
+  full?: boolean;
+}) {
   const [feedback, setFeedback] = useState("");
+  const [expanded, setExpanded] = useState(false);
   useEffect(() => {
     setFeedback("");
+    setExpanded(false);
   }, [value]);
   useEffect(() => {
     if (!feedback) return;
@@ -78,9 +86,19 @@ export function Address({ value }: { value: string }) {
   }
   return (
     <span className="address-control">
-      <span className="address" title={value}>
-        {feedback.startsWith("Select") ? value : short(value, 9)}
-      </span>
+      {full || short(value, 9) === value || feedback.startsWith("Select") ? (
+        <span className="address">{value}</span>
+      ) : (
+        <button
+          type="button"
+          className="address address-value"
+          aria-expanded={expanded}
+          aria-label={`${expanded ? "Shorten" : "Show full"} address ${value}`}
+          onClick={() => setExpanded((previous) => !previous)}
+        >
+          {expanded ? value : short(value, 9)}
+        </button>
+      )}
       <button
         type="button"
         className="copy-button"
@@ -313,18 +331,22 @@ export function ErrorState({
   error: unknown;
   retry?: () => void;
 }) {
+  const message =
+    error instanceof ApiError && error.status < 500 ? error.message : null;
   return (
     <Notice tone="error">
       <strong>Unable to load this view.</strong>
-      <p>
-        {error instanceof Error
-          ? error.message
-          : "The service could not be reached."}
-      </p>
+      <p>{message ?? "Try again in a moment, or check the error details."}</p>
       {retry && (
         <button className="button small secondary" onClick={retry}>
           Try again
         </button>
+      )}
+      {!message && error instanceof Error && (
+        <details className="disclosure">
+          <summary>Error details</summary>
+          <p>{error.message}</p>
+        </details>
       )}
     </Notice>
   );
@@ -403,9 +425,11 @@ export function ReferenceContent({
             : "The explanation is temporarily unavailable."}
         </p>
       )}
-      <details>
+      <details className="disclosure">
         <summary>On-chain reference</summary>
-        <code>{digest}</code>
+        <div className="disclosure-body">
+          <Address value={digest} full />
+        </div>
       </details>
     </div>
   );

@@ -28,7 +28,7 @@
   --warning-soft: #302719;
   --danger: #ffb1ba;
   --danger-soft: #321c27;
-  --radius: 4px;
+  --radius: 6px;
   --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
 }
 * {
@@ -119,7 +119,7 @@ table {
   font-size: 0.875rem;
 }
 th {
-  font-size: 0.7rem;
+  font-size: 0.75rem;
   font-weight: 600;
   letter-spacing: 0.055em;
   text-transform: uppercase;
@@ -164,6 +164,61 @@ summary {
   font-size: 0.85rem;
   font-weight: 550;
   cursor: pointer;
+}
+.disclosure {
+  padding-top: 0;
+}
+.disclosure > summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 46px;
+  padding: 13px 0;
+  list-style: none;
+  color: var(--ink);
+  font-size: 0.8125rem;
+}
+.disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+.disclosure > summary::after {
+  content: "+";
+  margin-left: auto;
+  color: var(--accent);
+  font-family: var(--mono);
+  font-size: 1.1rem;
+  flex-shrink: 0;
+}
+.disclosure[open] > summary::after {
+  content: "−";
+}
+.disclosure > summary:hover {
+  color: var(--accent);
+}
+.disclosure-meta,
+.disclosure > summary small {
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 400;
+}
+.disclosure-body {
+  padding-block: 8px 16px;
+}
+.disclosure > p + p {
+  margin-top: 10px;
+}
+.panel > .disclosure {
+  margin: 0;
+  padding-inline: 24px;
+}
+.panel > .disclosure > summary {
+  padding-block: 17px;
+}
+.panel > .disclosure[open] {
+  padding-bottom: 20px;
+}
+.panel > .panel-disclosure > .panel-body {
+  padding: 8px 0 20px;
 }
 fieldset {
   border: 0;
@@ -250,7 +305,7 @@ li + li {
 }
 .eyebrow {
   font-family: var(--mono);
-  font-size: 0.68rem;
+  font-size: 0.75rem;
   font-weight: 650;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -332,7 +387,7 @@ li + li {
 }
 .hero-note {
   font-family: var(--mono);
-  font-size: 0.68rem;
+  font-size: 0.75rem;
   color: var(--muted);
   display: flex;
   gap: 8px;
@@ -384,7 +439,7 @@ li + li {
   display: flex;
   justify-content: space-between;
   font-family: var(--mono);
-  font-size: 0.65rem;
+  font-size: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--muted);
@@ -429,7 +484,7 @@ li + li {
 }
 .budget-node div > span {
   font-family: var(--mono);
-  font-size: 0.63rem;
+  font-size: 0.75rem;
   color: var(--muted);
 }
 .budget-node strong {
@@ -437,7 +492,7 @@ li + li {
   font-weight: 550;
 }
 .node-state {
-  font-size: 0.6rem;
+  font-size: 0.75rem;
   background: var(--accent-soft);
   color: var(--accent);
   padding: 4px 6px;
@@ -498,7 +553,7 @@ li + li {
 }
 .diagram-chains div > span:last-child {
   font-family: var(--mono);
-  font-size: 0.62rem;
+  font-size: 0.75rem;
   color: var(--muted);
 }
 .diagram-task {
@@ -521,7 +576,7 @@ li + li {
   font-weight: 550;
 }
 .diagram-task div > span {
-  font-size: 0.68rem;
+  font-size: 0.75rem;
   color: var(--muted);
 }
 .diagram-caption {
@@ -530,7 +585,7 @@ li + li {
   align-items: center;
   justify-content: space-between;
   font-family: var(--mono);
-  font-size: 0.6rem;
+  font-size: 0.75rem;
   color: var(--muted);
   margin-top: 26px;
 }
@@ -545,12 +600,12 @@ li + li {
   grid-template-columns: repeat(4, 1fr);
   gap: 22px;
   padding-block: 24px;
-  font-size: 0.72rem;
+  font-size: 0.75rem;
   color: var(--muted);
 }
 .principles-strip b {
   font-family: var(--mono);
-  font-size: 0.65rem;
+  font-size: 0.75rem;
   font-weight: 400;
   color: var(--accent);
   margin-right: 10px;
@@ -619,7 +674,7 @@ li + li {
 }
 .role-number {
   font-family: var(--mono);
-  font-size: 0.68rem;
+  font-size: 0.75rem;
   letter-spacing: 0.04em;
   color: var(--accent);
 }
@@ -705,7 +760,7 @@ li + li {
 .public-footer p,
 .public-footer > a:last-child {
   font-family: var(--mono);
-  font-size: 0.68rem;
+  font-size: 0.75rem;
   color: var(--muted);
 }
 /* Workspace */
@@ -764,7 +819,7 @@ li + li {
   border-top: 1px solid var(--line);
 }
 .sidebar-bottom p {
-  font-size: 0.7rem;
+  font-size: 0.75rem;
   color: var(--muted);
   line-height: 1.7;
 }
@@ -788,7 +843,7 @@ li + li {
   gap: 20px;
 }
 .header-breadcrumb {
-  font-size: 0.78rem;
+  font-size: 0.8125rem;
   color: var(--muted);
   display: flex;
   gap: 12px;
@@ -799,10 +854,17 @@ li + li {
   color: var(--ink);
 }
 .account-link {
-  font-size: 0.78rem;
+  font-size: 0.8125rem;
   display: flex;
   align-items: center;
   gap: 10px;
+  min-width: 0;
+  max-width: 40%;
+}
+.account-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .avatar {
   background: var(--accent-soft);
@@ -814,6 +876,7 @@ li + li {
   border-radius: var(--radius);
   font-weight: 600;
   color: var(--accent);
+  flex-shrink: 0;
 }
 .app-content {
   padding: 37px;
@@ -838,14 +901,14 @@ li + li {
   max-width: 680px;
 }
 .page-title .eyebrow {
-  font-size: 0.62rem;
+  font-size: 0.75rem;
 }
 .environment-bar {
   border-bottom: 1px solid var(--line);
   background: var(--warning-soft);
   color: var(--muted);
   padding: 9px 37px;
-  font-size: 0.72rem;
+  font-size: 0.75rem;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -860,8 +923,10 @@ li + li {
   border-radius: var(--radius);
   overflow: hidden;
   margin-bottom: 24px;
+  box-shadow: 0 6px 20px -16px #000;
 }
 .panel-heading {
+  flex-wrap: wrap;
   padding: 23px;
   display: flex;
   align-items: center;
@@ -873,7 +938,7 @@ li + li {
   font-size: 1rem;
 }
 .panel-heading p {
-  font-size: 0.77rem;
+  font-size: 0.8125rem;
   color: var(--muted);
   margin-top: 6px;
 }
@@ -904,7 +969,7 @@ li + li {
   font-size: 1.15rem;
 }
 .project-card p {
-  font-size: 0.76rem;
+  font-size: 0.8125rem;
   color: var(--muted);
 }
 .project-card-footer {
@@ -933,7 +998,7 @@ li + li {
   flex-wrap: wrap;
 }
 .role-badge {
-  font-size: 0.62rem;
+  font-size: 0.75rem;
   padding: 4px 8px;
   border-radius: 4px;
   background: var(--raised);
@@ -953,18 +1018,18 @@ li + li {
   padding: 22px;
 }
 .stat > p {
-  font-size: 0.72rem;
+  font-size: 0.75rem;
   color: var(--muted);
   margin-bottom: 12px;
 }
 .stat > strong {
-  font-size: 1.35rem;
+  font-size: 1.55rem;
   font-weight: 600;
   letter-spacing: -0.04em;
   display: block;
 }
 .stat small {
-  font-size: 0.63rem;
+  font-size: 0.75rem;
   color: var(--muted);
   display: block;
   margin-top: 8px;
@@ -993,9 +1058,23 @@ li + li {
   gap: 5px;
   max-width: 100%;
 }
+.address-value {
+  background: transparent;
+  border: 0;
+  color: inherit;
+  padding: 3px 0;
+  min-height: 28px;
+  text-align: inherit;
+  max-width: 100%;
+}
+.address-value:hover {
+  color: var(--accent);
+}
 .copy-button {
   padding: 3px 7px;
   border: 0;
+  min-width: 28px;
+  min-height: 28px;
   border-radius: var(--radius);
   background: transparent;
   color: var(--muted);
@@ -1007,7 +1086,7 @@ li + li {
 }
 .copy-feedback {
   color: var(--muted);
-  font-size: 0.7rem;
+  font-size: 0.75rem;
 }
 .copy-feedback:empty {
   display: none;
@@ -1027,7 +1106,7 @@ li + li {
 .filter-summary {
   padding: 12px 23px;
   color: var(--muted);
-  font-size: 0.76rem;
+  font-size: 0.8125rem;
 }
 .skip-link {
   position: fixed;
@@ -1042,14 +1121,14 @@ li + li {
 .skip-link:focus {
   clip-path: none;
 }
-#workspace-content:focus {
+main:focus {
   outline: none;
 }
 .chain {
   display: inline-flex;
   gap: 8px;
   align-items: center;
-  font-size: 0.76rem;
+  font-size: 0.8125rem;
   white-space: nowrap;
 }
 .chain > span {
@@ -1074,7 +1153,7 @@ li + li {
   gap: 6px;
   padding: 4px 8px;
   border-radius: 5px;
-  font-size: 0.66rem;
+  font-size: 0.75rem;
   font-weight: 500;
   text-transform: capitalize;
   white-space: nowrap;
@@ -1127,12 +1206,15 @@ li + li {
 .table-scroll .role-badge {
   white-space: nowrap;
 }
+.table-scroll .address-value[aria-expanded="true"] {
+  white-space: normal;
+}
 .inline-meta {
   display: flex;
   align-items: center;
   gap: 14px;
   flex-wrap: wrap;
-  font-size: 0.7rem;
+  font-size: 0.75rem;
   color: var(--muted);
 }
 .notice {
@@ -1151,7 +1233,7 @@ li + li {
 }
 .notice-error {
   background: var(--danger-soft);
-  border-color: var(--paper);
+  border-color: #78404b;
   color: var(--danger);
 }
 .notice-success {
@@ -1218,12 +1300,12 @@ li + li {
   min-width: 0;
 }
 .field > label {
-  font-size: 0.78rem;
+  font-size: 0.8125rem;
   font-weight: 550;
   color: var(--muted);
 }
 .field small {
-  font-size: 0.72rem;
+  font-size: 0.75rem;
   color: var(--muted);
   line-height: 1.6;
 }
@@ -1333,6 +1415,14 @@ li + li {
   margin: 0;
   text-align: right;
   overflow-wrap: anywhere;
+  min-width: 0;
+}
+.definition-list dt {
+  flex-shrink: 0;
+  max-width: 48%;
+}
+.definition-list dd .address-control {
+  justify-content: flex-end;
 }
 .split {
   display: grid;
@@ -1374,7 +1464,7 @@ li + li {
   font-size: 1.5rem;
 }
 .dialog-heading p {
-  font-size: 0.78rem;
+  font-size: 0.8125rem;
   color: var(--muted);
   margin-top: 8px;
   line-height: 1.7;
@@ -1422,12 +1512,12 @@ li + li {
   padding: 12px 0;
   display: flex;
   gap: 10px;
-  font-size: 0.78rem;
+  font-size: 0.8125rem;
   align-items: center;
   overflow-wrap: anywhere;
 }
 .progress-list code {
-  font-size: 0.65rem;
+  font-size: 0.75rem;
 }
 .operation-card {
   padding: 22px;
@@ -1480,7 +1570,7 @@ li + li {
   font-weight: 550;
 }
 .section-label {
-  font-size: 0.7rem;
+  font-size: 0.75rem;
   font-weight: 550;
   color: var(--muted);
   margin: 24px 0 12px;
@@ -1501,9 +1591,10 @@ li + li {
   background: none;
   color: var(--muted);
   padding: 0;
-  font-size: 0.76rem;
+  font-size: 0.8125rem;
   text-decoration: underline;
   text-underline-offset: 3px;
+  min-height: 32px;
 }
 .row-actions {
   display: flex;
@@ -1750,12 +1841,13 @@ li + li {
     gap: 20px;
   }
   .principles-strip .container {
-    font-size: 0.63rem;
+    font-size: 0.75rem;
     gap: 12px;
   }
   .sidebar {
     padding: 18px;
     gap: 10px;
+    flex-wrap: wrap;
   }
   .sidebar .brand {
     font-size: 1.05rem;
@@ -1765,34 +1857,36 @@ li + li {
     height: 25px;
   }
   .sidebar nav a {
-    font-size: 0.7rem;
+    font-size: 0.75rem;
     padding: 7px;
   }
   .app-header {
     padding: 0 18px;
   }
   .header-breadcrumb {
-    font-size: 0.68rem;
+    font-size: 0.75rem;
   }
   .account-link {
-    font-size: 0.7rem;
+    font-size: 0.75rem;
   }
   .app-content {
     padding: 24px 18px;
   }
   .environment-bar {
     padding: 9px 18px;
-    font-size: 0.65rem;
+    font-size: 0.75rem;
+    flex-wrap: wrap;
+    gap: 2px 10px;
   }
   .page-title {
     flex-direction: column;
     gap: 15px;
   }
   .page-title h1 {
-    font-size: 1.6rem;
+    font-size: clamp(1.35rem, 6.5vw, 1.6rem);
   }
   .page-title .muted {
-    font-size: 0.78rem;
+    font-size: 0.8125rem;
   }
   .panel-grid {
     grid-template-columns: 1fr;
@@ -1804,14 +1898,14 @@ li + li {
     padding: 16px;
   }
   .stat > strong {
-    font-size: 1.15rem;
+    font-size: 1.25rem;
   }
   .stat > p {
-    font-size: 0.66rem;
+    font-size: 0.75rem;
     margin-bottom: 8px;
   }
   .stat small {
-    font-size: 0.58rem;
+    font-size: 0.75rem;
   }
   .tabs {
     gap: 23px;
@@ -1825,6 +1919,24 @@ li + li {
   }
   .panel-body {
     padding: 18px;
+  }
+  .panel > .disclosure {
+    padding-inline: 18px;
+  }
+  .disclosure > summary {
+    flex-wrap: wrap;
+    gap: 6px 10px;
+    position: relative;
+    padding-right: 22px;
+  }
+  .disclosure > summary::after {
+    position: absolute;
+    right: 0;
+    top: 12px;
+  }
+  .disclosure-meta,
+  .disclosure > summary small {
+    flex-basis: 100%;
   }
   .wallet-options {
     gap: 8px;
@@ -1854,13 +1966,13 @@ li + li {
     align-items: flex-start;
   }
   .definition-list > div {
-    font-size: 0.73rem;
+    font-size: 0.75rem;
   }
   .public-footer .brand {
     font-size: 1rem;
   }
   .public-footer > a:last-child {
-    font-size: 0.65rem;
+    font-size: 0.75rem;
   }
   td,
   th {
@@ -1870,7 +1982,7 @@ li + li {
     padding: 16px;
   }
   .hero-note {
-    font-size: 0.66rem;
+    font-size: 0.75rem;
   }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -1887,7 +1999,7 @@ li + li {
   display: flex;
   align-items: flex-start;
   gap: 9px;
-  font-size: 0.72rem;
+  font-size: 0.75rem;
   color: var(--muted);
   line-height: 1.6;
 }
@@ -1898,6 +2010,7 @@ li + li {
 
 .task-title-text {
   display: inline-block;
+  min-width: 0;
   max-width: 550px;
   vertical-align: bottom;
   white-space: nowrap;

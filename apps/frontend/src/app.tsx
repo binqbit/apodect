@@ -3,6 +3,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -194,16 +195,18 @@ function WorkspaceLayout() {
                 ?.slice(0, 1)
                 .toUpperCase() ?? "◈"}
             </span>
-            {account
-              ? (account.session.profile.display_name ??
-                short(account.session.wallet.address, 5))
-              : "Connect wallet"}
+            <span className="account-name">
+              {account
+                ? (account.session.profile.display_name ??
+                  short(account.session.wallet.address, 5))
+                : "Connect wallet"}
+            </span>
           </Link>
         </header>
         {config?.local_simulator && (
           <div className="environment-bar">
             <strong>Local environment</strong>
-            <span>Test tokens · Simulated liquidity and MPC providers</span>
+            <span>Test tokens · Simulated cross-chain delivery</span>
           </div>
         )}
         <main className="app-content" id="workspace-content" tabIndex={-1}>
@@ -233,23 +236,41 @@ function Authenticated({ children }: { children: ReactNode }) {
   );
 }
 
+function RouteFocus() {
+  const { pathname } = useLocation();
+  const previousPath = useRef(pathname);
+  useEffect(() => {
+    if (pathname === "/")
+      document.title = "Apodect · Agent budgets across chains";
+    if (pathname === previousPath.current) return;
+    previousPath.current = pathname;
+    const frame = requestAnimationFrame(() => {
+      document.querySelector<HTMLElement>("main")?.focus();
+      window.scrollTo(0, 0);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [pathname]);
+  return null;
+}
+
 export function App() {
   return (
     <BrowserRouter>
+      <RouteFocus />
       <SessionProvider>
         <Routes>
           <Route path="/" element={<Landing />} />
           <Route
             path="/wallet/callback"
             element={
-              <div className="container section">
+              <main className="container section" tabIndex={-1}>
                 <Brand />
                 <h1 style={{ marginTop: 35 }}>Return to your workspace</h1>
                 <p className="muted" style={{ marginTop: 15 }}>
                   The wallet response is handled by the window where you started
                   signing. You can close this window.
                 </p>
-              </div>
+              </main>
             }
           />
           <Route path="/app" element={<WorkspaceLayout />}>
@@ -274,7 +295,7 @@ export function App() {
           <Route
             path="*"
             element={
-              <div className="container section">
+              <main className="container section" tabIndex={-1}>
                 <Brand />
                 <h1 style={{ marginTop: 40 }}>Page not found</h1>
                 <p className="muted" style={{ margin: "18px 0" }}>
@@ -284,7 +305,7 @@ export function App() {
                 <Link className="button" to="/app">
                   Go to workspace
                 </Link>
-              </div>
+              </main>
             }
           />
         </Routes>
