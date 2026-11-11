@@ -755,7 +755,7 @@ async fn route_receiver(
         }
         Chain::Solana => indexer
             .solana(project)?
-            .route_address(word(route)?)
+            .route_receiver(word(route)?)
             .to_string(),
         Chain::Near => {
             let block = indexer.near.finalized_block().await?;

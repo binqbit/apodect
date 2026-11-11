@@ -519,6 +519,7 @@ mod tests {
                 payer: payer.pubkey(),
                 system_program: solana_system_interface::program::ID,
                 token_program: spl_token::ID,
+                associated_token_program: apodect_solana::bridge::ASSOCIATED_TOKEN_PROGRAM,
                 task: Some(Pubkey::new_unique()),
                 request: Some(Pubkey::new_unique()),
                 plan: Some(Pubkey::new_unique()),

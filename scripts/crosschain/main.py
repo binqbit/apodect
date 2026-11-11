@@ -136,8 +136,8 @@ def bootstrap():
             ),
             "owner_identity": hex_bytes(base58_decode(solana["owner"], 32)),
             "genesis": solana["genesis"],
-            "deposit_address": solana["mock_lp"]["token_account"],
-            "deposit_word": solana["mock_lp"]["recipient"],
+            "deposit_address": solana["mock_lp"]["address"],
+            "deposit_word": hex_bytes(base58_decode(solana["mock_lp"]["address"], 32)),
             "program": solana["manifest"]["contracts"]["program"],
         },
         "near": {

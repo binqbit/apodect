@@ -20,8 +20,8 @@ pub struct CollectRoute<'info> {
     #[account(mut, has_one = project, constraint = plan.id == route.plan @ ContractError::InvalidRoute,
         seeds = [b"bridge-plan", project.key().as_ref(), &route.plan], bump)]
     pub plan: Account<'info, BridgePlan>,
-    #[account(mut, seeds = [b"bridge-escrow", project.key().as_ref(), &route.id], bump,
-        token::mint = mint, token::authority = project)]
+    #[account(mut, address = crate::bridge::associated_account(route.key(), mint.key()),
+        token::mint = mint, token::authority = route)]
     pub escrow: Account<'info, TokenAccount>,
     pub token_program: Program<'info, Token>,
 }
@@ -46,9 +46,9 @@ pub fn handler(ctx: Context<CollectRoute>) -> Result<()> {
         _ => return err!(ContractError::InvalidRoute),
     };
     positive(amount)?;
-    let index = a.project.index.to_le_bytes();
-    let bump = [a.project.bump];
-    let seeds: &[&[u8]] = &[b"project", a.project.workspace.as_ref(), &index, &bump];
+    let project = a.project.key();
+    let bump = [ctx.bumps.route];
+    let seeds: &[&[u8]] = &[b"bridge-route", project.as_ref(), &a.route.id, &bump];
     token::transfer_checked(
         CpiContext::new_with_signer(
             a.token_program.key(),
@@ -56,7 +56,7 @@ pub fn handler(ctx: Context<CollectRoute>) -> Result<()> {
                 from: a.escrow.to_account_info(),
                 mint: a.mint.to_account_info(),
                 to: a.vault.to_account_info(),
-                authority: a.project.to_account_info(),
+                authority: a.route.to_account_info(),
             },
             &[seeds],
         ),

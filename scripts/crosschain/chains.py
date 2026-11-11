@@ -168,7 +168,7 @@ class Chain:
                 kind=kind,
             )["escrow_address"]
         result = self.bridge("route_address", route=identity(route), kind=kind)
-        return result["address"] if self.name == "solana" else result
+        return result["receiver"] if self.name == "solana" else result
 
     def route_view(self, route, kind):
         if self.name == "ethereum":

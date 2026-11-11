@@ -62,6 +62,16 @@ These checks do not prove public route execution or MPC admission.
 [Quote verification](https://docs.near-intents.org/integration/distribution-channels/1click-api/verify-quote-signature),
 [supported tokens](https://docs.near-intents.org/api-reference/oneclick/get-supported-tokens).
 
+Solana quote addresses identify the receiving owner, whose canonical USDC
+associated token account receives the tokens. Each route uses its route PDA as
+that owner; source dispatch likewise binds the provider's raw owner address and
+creates its USDC account when needed. Passing a token account as the quote's
+recipient would send funds to a different associated account.
+
+This custody layout and the command's ATA-program account require matching
+program and client releases. Redeploy older development ledgers before testing
+these flows; their previous route accounts are not migrated automatically.
+
 The local provider has a separate private store, discovers finalized coordinator
 routes and independently proves source dispatch before spending its finite token
 inventory. It communicates with the application through HTTP quote/status APIs;

@@ -54,6 +54,166 @@ fn account(value: &impl AccountSerialize) -> Value {
 }
 
 #[tokio::test]
+async fn dispatch_records_atomic_owner_ata_creation_before_the_signed_command() {
+    use alloy_signer::SignerSync;
+    use alloy_signer_local::PrivateKeySigner;
+    use sha2::{Digest, Sha256};
+
+    let coordinator = PrivateKeySigner::from_bytes(&[7; 32].into()).unwrap();
+    let workspace = Pubkey::new_unique();
+    let mint = Pubkey::new_unique();
+    let (project, bump) = Pubkey::find_program_address(
+        &[b"project", workspace.as_ref(), &0_u64.to_le_bytes()],
+        &apodect_solana::ID,
+    );
+    let state = Project {
+        workspace,
+        index: 0,
+        bump,
+        authority: Pubkey::new_unique(),
+        mint,
+        free: 0,
+        task_count: 0,
+        invoice_count: 0,
+        approval_count: 0,
+        head: None,
+        tail: None,
+        domain: [1; 32],
+        command_key: coordinator.public_key().0,
+        held: 1_000_000,
+        checkpoint_sequence: 0,
+    };
+    let (rpc, server) = mock_rpc(vec![
+        (
+            "getAccountInfo",
+            json!({"context":{"slot":10},"value":account(&state)}),
+        ),
+        (
+            "getLatestBlockhash",
+            json!({"context":{"slot":10},"value":{"blockhash":Pubkey::new_unique().to_string(),"lastValidBlockHeight":100}}),
+        ),
+    ]);
+    let client = Client {
+        rpc,
+        binding: Binding {
+            genesis_hash: "genesis".into(),
+            project,
+            mint,
+            domain: [1; 32],
+        },
+        payer: Some(Keypair::new()),
+    };
+    let provider_owner = Pubkey::new_unique();
+    let mut words = [[0; 32]; 12];
+    words[0] = state.domain;
+    words[2] = bridge::word(u64::from(action::DISPATCH));
+    words[3] = [10; 32];
+    words[4] = [11; 32];
+    words[7] = bridge::word(1_000_000);
+    words[9] = provider_owner.to_bytes();
+    words[10] = bridge::word(u64::MAX);
+    words[11] = [12; 32];
+    let command: [u8; 384] = words.concat().try_into().unwrap();
+    let signature = coordinator
+        .sign_hash_sync(&<[u8; 32]>::from(Sha256::digest(command)).into())
+        .unwrap();
+    let prepared = client
+        .prepare_execute(
+            command,
+            signature.as_bytes()[..64].try_into().unwrap(),
+            u8::from(signature.v()),
+        )
+        .await
+        .unwrap();
+    server.join().unwrap();
+
+    let bytes = STANDARD.decode(&prepared.bytes_base64).unwrap();
+    let transaction: Transaction = wincode::deserialize(&bytes).unwrap();
+    let message = &transaction.message;
+    assert!(bytes.len() <= 1232);
+    assert_eq!(prepared.signature, transaction.signatures[0].to_string());
+    assert_eq!(message.instructions.len(), 3); // CreateIdempotent, ExecuteCommand, identity memo.
+    let create = &message.instructions[0];
+    assert_eq!(
+        message.account_keys[usize::from(create.program_id_index)],
+        bridge::ASSOCIATED_TOKEN_PROGRAM
+    );
+    assert_eq!(create.data, [1]);
+    assert_eq!(
+        message.account_keys[usize::from(create.accounts[1])],
+        bridge::associated_account(provider_owner, mint)
+    );
+    assert_eq!(
+        message.account_keys[usize::from(create.accounts[2])],
+        provider_owner
+    );
+}
+
+#[tokio::test]
+async fn route_reads_require_the_attributed_owner_and_actual_token_slot() {
+    use anchor_lang::solana_program::program_option::COption;
+
+    for valid_owner in [true, false] {
+        let project = Pubkey::new_unique();
+        let mint = Pubkey::new_unique();
+        let route = [19; 32];
+        let owner = bridge::pda(&[b"bridge-route", project.as_ref(), &route]);
+        let record = BridgeRoute {
+            project,
+            id: route,
+            plan: [20; 32],
+            kind: bridge::DELIVERY,
+            expected: 1_000_000,
+            received: 0,
+            dispatched: 0,
+        };
+        let token = spl_token::state::Account {
+            mint,
+            owner: if valid_owner { owner } else { project },
+            amount: 1_000_000,
+            delegate: COption::None,
+            state: spl_token::state::AccountState::Initialized,
+            is_native: COption::None,
+            delegated_amount: 0,
+            close_authority: COption::None,
+        };
+        let mut bytes = vec![0; spl_token::state::Account::LEN];
+        spl_token::state::Account::pack(token, &mut bytes).unwrap();
+        let (rpc, server) = mock_rpc(vec![
+            (
+                "getAccountInfo",
+                json!({"context":{"slot":10},"value":account(&record)}),
+            ),
+            (
+                "getAccountInfo",
+                json!({"context":{"slot":11},"value":{"owner":spl_token::ID.to_string(),"executable":false,"data":[STANDARD.encode(bytes),"base64"]}}),
+            ),
+        ]);
+        let client = Client::new(
+            rpc,
+            Binding {
+                genesis_hash: "genesis".into(),
+                project,
+                mint,
+                domain: [1; 32],
+            },
+            None,
+        )
+        .unwrap();
+        let result = client.route_state(route).await;
+        server.join().unwrap();
+        if valid_owner {
+            let value = result.unwrap().unwrap();
+            assert_eq!(value.escrow_balance, 1_000_000);
+            assert_eq!(value.escrow, bridge::associated_account(owner, mint));
+            assert_eq!(value.slot, 11);
+        } else {
+            assert!(result.is_err());
+        }
+    }
+}
+
+#[tokio::test]
 async fn scan_keeps_zero_indices_and_rejects_foreign_request() {
     for foreign in [false, true] {
         let workspace = Pubkey::new_unique();

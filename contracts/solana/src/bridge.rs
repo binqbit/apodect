@@ -4,6 +4,50 @@ use anchor_lang::{system_program, AccountDeserialize, AccountSerialize, Discrimi
 
 use crate::errors::ContractError;
 
+pub const ASSOCIATED_TOKEN_PROGRAM: Pubkey =
+    Pubkey::new_from_array(spl_associated_token_account_interface::program::ID.to_bytes());
+
+/// Provider addresses name token owners; SPL transfers use their canonical ATA.
+pub fn associated_account(owner: Pubkey, mint: Pubkey) -> Pubkey {
+    let account = spl_associated_token_account_interface::address::get_associated_token_address(
+        &owner.to_bytes().into(),
+        &mint.to_bytes().into(),
+    );
+    Pubkey::new_from_array(account.to_bytes())
+}
+
+pub fn create_associated_account(
+    payer: Pubkey,
+    owner: Pubkey,
+    mint: Pubkey,
+) -> anchor_lang::solana_program::instruction::Instruction {
+    use anchor_lang::solana_program::instruction::{AccountMeta, Instruction};
+
+    let instruction = spl_associated_token_account_interface::instruction::create_associated_token_account_idempotent(
+        &payer.to_bytes().into(),
+        &owner.to_bytes().into(),
+        &mint.to_bytes().into(),
+        &anchor_spl::token::ID.to_bytes().into(),
+    );
+    Instruction {
+        program_id: Pubkey::new_from_array(instruction.program_id.to_bytes()),
+        accounts: instruction
+            .accounts
+            .into_iter()
+            .map(|account| AccountMeta {
+                pubkey: Pubkey::new_from_array(account.pubkey.to_bytes()),
+                is_signer: account.is_signer,
+                is_writable: account.is_writable,
+            })
+            .collect(),
+        data: instruction.data,
+    }
+}
+
+pub fn route_escrow(project: Pubkey, mint: Pubkey, route: [u8; 32]) -> Pubkey {
+    associated_account(pda(&[b"bridge-route", project.as_ref(), &route]), mint)
+}
+
 pub const COMMAND_BYTES: usize = 384;
 pub const CHECKPOINT_BYTES: usize = 1248;
 pub const OPEN: u8 = 1;

@@ -210,7 +210,8 @@ impl Client {
         let mint =
             spl_token::state::Mint::unpack(&mint.value).context("Invalid Solana token mint")?;
         ensure!(mint.decimals == 6, "Project token must have six decimals");
-        self.read_token(self.vault_address(), 0).await?;
+        self.read_token(self.vault_address(), self.binding.project, 0)
+            .await?;
         Ok(())
     }
 
@@ -449,7 +450,11 @@ impl Client {
     }
 
     pub fn route_address(&self, route: [u8; 32]) -> Pubkey {
-        self.record_address(b"bridge-escrow", route)
+        bridge::route_escrow(self.binding.project, self.binding.mint, route)
+    }
+
+    pub fn route_receiver(&self, route: [u8; 32]) -> Pubkey {
+        self.record_address(b"bridge-route", route)
     }
 
     pub fn vault_address(&self) -> Pubkey {
@@ -472,12 +477,14 @@ impl Client {
             "Invalid Solana route kind"
         );
         let escrow = self.route_address(route);
-        let balance = self.read_token(escrow, record.slot).await?.value.amount;
+        let token = self
+            .read_token(escrow, self.route_receiver(route), record.slot)
+            .await?;
         Ok(Some(RouteState {
             record: record.value,
             escrow,
-            escrow_balance: balance,
-            slot: record.slot,
+            escrow_balance: token.value.amount,
+            slot: token.slot.max(record.slot),
         }))
     }
 
@@ -544,6 +551,7 @@ impl Client {
             payer: self.gas_payer()?.pubkey(),
             system_program: system_program::ID,
             token_program: spl_token::ID,
+            associated_token_program: bridge::ASSOCIATED_TOKEN_PROGRAM,
             task,
             request,
             plan: (action::RESERVE..=action::CLOSE_PLAN)
@@ -559,23 +567,34 @@ impl Client {
                 action::EXPECT_DELIVERY | action::EXPECT_REFUND
             )
             .then(|| self.route_address(command.reference)),
-            recipient: matches!(command.action, action::DISPATCH | action::OWNER_WITHDRAW)
-                .then(|| Pubkey::new_from_array(command.recipient)),
+            recipient: match command.action {
+                action::DISPATCH => Some(bridge::associated_account(
+                    Pubkey::new_from_array(command.recipient),
+                    self.binding.mint,
+                )),
+                action::OWNER_WITHDRAW => Some(Pubkey::new_from_array(command.recipient)),
+                _ => None,
+            },
             target: (command.action == action::INVALIDATE)
                 .then(|| self.record_address(b"bridge-command", command.reference)),
         };
-        self.prepare(
-            make_instruction(
-                instruction::ExecuteCommand {
-                    bytes,
-                    signature,
-                    recovery_id,
-                },
-                accounts,
-            ),
-            command.operation,
-        )
-        .await
+        let mut instructions = Vec::new();
+        if command.action == action::DISPATCH {
+            instructions.push(bridge::create_associated_account(
+                self.gas_payer()?.pubkey(),
+                Pubkey::new_from_array(command.recipient),
+                self.binding.mint,
+            ));
+        }
+        instructions.push(make_instruction(
+            instruction::ExecuteCommand {
+                bytes,
+                signature,
+                recovery_id,
+            },
+            accounts,
+        ));
+        self.prepare(instructions, command.operation).await
     }
 
     pub async fn prepare_checkpoint(
@@ -611,7 +630,7 @@ impl Client {
                     .map(|id| self.record_address(b"bridge-command", id)),
             },
         );
-        self.prepare(instruction, observation).await
+        self.prepare(vec![instruction], observation).await
     }
 
     pub async fn prepare_collect(
@@ -625,7 +644,7 @@ impl Client {
             .await?
             .context("Route is not finalized")?;
         self.prepare(
-            make_instruction(
+            vec![make_instruction(
                 instruction::CollectRoute {},
                 accounts::CollectRoute {
                     project: self.binding.project,
@@ -636,7 +655,7 @@ impl Client {
                     escrow: route_state.escrow,
                     token_program: spl_token::ID,
                 },
-            ),
+            )],
             intent,
         )
         .await
@@ -836,7 +855,7 @@ impl Client {
 
     async fn prepare(
         &self,
-        instruction: Instruction,
+        mut instructions: Vec<Instruction>,
         intent: [u8; 32],
     ) -> Result<PreparedTransaction> {
         #[derive(Deserialize)]
@@ -855,7 +874,8 @@ impl Client {
             accounts: vec![],
             data: encode_hex(&intent).into_bytes(),
         };
-        let message = Message::new(&[instruction, memo], Some(&payer.pubkey()));
+        instructions.push(memo);
+        let message = Message::new(&instructions, Some(&payer.pubkey()));
         let transaction = Transaction::new(&[payer], message, response.value.blockhash.parse()?);
         let bytes = wincode::serialize(&transaction).context("Cannot encode Solana transaction")?;
         ensure!(
@@ -967,14 +987,15 @@ impl Client {
     async fn read_token(
         &self,
         address: Pubkey,
+        owner: Pubkey,
         min_slot: u64,
     ) -> Result<Finalized<spl_token::state::Account>> {
         let data = self.token_account_data(address, min_slot).await?;
         let token = spl_token::state::Account::unpack(&data.value)
             .context("Invalid Solana token account")?;
         ensure!(
-            token.mint == self.binding.mint && token.owner == self.binding.project,
-            "Foreign Solana Project token account"
+            token.mint == self.binding.mint && token.owner == owner,
+            "Foreign Solana custody token account"
         );
         Ok(Finalized {
             slot: data.slot,

@@ -95,6 +95,7 @@ impl Localnet {
             "local Project was already used; refusing to bind existing activity",
         )?;
         let lp_token = address(&manifest["asset"]["liquidity_token"])?;
+        let lp = address(&manifest["accounts"]["liquidity"]["address"])?;
         let mint = address(&manifest["asset"]["address"])?;
         Ok(json!({
             "chain": "solana",
@@ -112,7 +113,7 @@ impl Localnet {
             "mock_lp": {
                 "address": manifest["accounts"]["liquidity"]["address"],
                 "token_account": lp_token.to_string(),
-                "recipient": hex(lp_token.as_ref()),
+                "recipient": hex(lp.as_ref()),
                 "balance": self.finalized_token(lp_token)?.amount.to_string()
             },
             "manifest": manifest
@@ -123,18 +124,20 @@ impl Localnet {
         let manifest = self.manifest()?;
         let project = address(&manifest["contracts"]["project"])?;
         let payer = self.key("owner", false)?;
+        let mint = address(&manifest["asset"]["address"])?;
         let wire = bytes::<384>(&input["command"])?;
         let c = Command::parse(&wire)?;
         let receipt = record(project, b"bridge-command", &c.operation);
         let accounts = accounts::ExecuteCommand {
             project,
             workspace: address(&manifest["contracts"]["workspace"])?,
-            mint: address(&manifest["asset"]["address"])?,
+            mint,
             vault: address(&manifest["contracts"]["vault"])?,
             receipt,
             payer: payer.pubkey(),
             system_program: solana_system_interface::program::ID,
             token_program: spl_token::ID,
+            associated_token_program: bridge::ASSOCIATED_TOKEN_PROGRAM,
             task: (c.task != [0; 32]).then(|| Pubkey::new_from_array(c.task)),
             request: if matches!(
                 c.action,
@@ -162,9 +165,15 @@ impl Localnet {
             )
             .then(|| record(project, b"bridge-route", &c.reference)),
             escrow: matches!(c.action, action::EXPECT_DELIVERY | action::EXPECT_REFUND)
-                .then(|| record(project, b"bridge-escrow", &c.reference)),
-            recipient: matches!(c.action, action::DISPATCH | action::OWNER_WITHDRAW)
-                .then(|| Pubkey::new_from_array(c.recipient)),
+                .then(|| bridge::route_escrow(project, mint, c.reference)),
+            recipient: match c.action {
+                action::DISPATCH => Some(bridge::associated_account(
+                    Pubkey::new_from_array(c.recipient),
+                    mint,
+                )),
+                action::OWNER_WITHDRAW => Some(Pubkey::new_from_array(c.recipient)),
+                _ => None,
+            },
             target: (c.action == action::INVALIDATE)
                 .then(|| record(project, b"bridge-command", &c.reference)),
         };
@@ -172,18 +181,23 @@ impl Localnet {
             .as_u64()
             .ok_or("recovery_id required")?;
         ensure(recovery <= 1, "recovery_id must be 0 or 1")?;
-        let tx = self.send(
-            &payer,
-            &[ix(
-                instruction::ExecuteCommand {
-                    bytes: wire,
-                    signature: bytes(&input["signature"])?,
-                    recovery_id: recovery as u8,
-                },
-                accounts,
-            )],
-            &[],
-        )?;
+        let mut instructions = Vec::new();
+        if c.action == action::DISPATCH {
+            instructions.push(bridge::create_associated_account(
+                payer.pubkey(),
+                Pubkey::new_from_array(c.recipient),
+                mint,
+            ));
+        }
+        instructions.push(ix(
+            instruction::ExecuteCommand {
+                bytes: wire,
+                signature: bytes(&input["signature"])?,
+                recovery_id: recovery as u8,
+            },
+            accounts,
+        ));
+        let tx = self.send(&payer, &instructions, &[])?;
         let proof = self.finalized_proof(&tx)?;
         let receipt: CommandReceipt = self
             .read_finalized_optional(receipt)?
@@ -318,11 +332,14 @@ impl Localnet {
         }
         let route = identity(input, "route")?;
         if route != [0; 32] {
-            let escrow = record(project, b"bridge-escrow", &route);
+            let receiver = record(project, b"bridge-route", &route);
+            let escrow =
+                bridge::route_escrow(project, address(&manifest["asset"]["address"])?, route);
             output["route"] = json!({
                 "id": hex(&route),
                 "escrow": escrow.to_string(),
-                "recipient": hex(escrow.as_ref()),
+                "receiver": receiver.to_string(),
+                "recipient": hex(receiver.as_ref()),
                 "exists": false,
                 "escrow_balance": "0"
             });
@@ -340,7 +357,8 @@ impl Localnet {
                     "received": state.received.to_string(),
                     "dispatched": state.dispatched.to_string(),
                     "escrow": escrow.to_string(),
-                    "recipient": hex(escrow.as_ref()),
+                    "receiver": receiver.to_string(),
+                    "recipient": hex(receiver.as_ref()),
                     "exists": true,
                     "escrow_balance": self.finalized_token(escrow)?.amount.to_string()
                 });
@@ -726,8 +744,9 @@ pub(super) fn run(localnet: &Localnet) -> Result<()> {
             let m = localnet.manifest()?;
             let project = address(&m["contracts"]["project"])?;
             let route = bytes::<32>(&input["route"])?;
-            let escrow = record(project, b"bridge-escrow", &route);
-            json!({"route":hex(&route),"address":escrow.to_string(),"recipient":hex(escrow.as_ref())})
+            let receiver = record(project, b"bridge-route", &route);
+            let escrow = bridge::route_escrow(project, address(&m["asset"]["address"])?, route);
+            json!({"route":hex(&route),"receiver":receiver.to_string(),"token_account":escrow.to_string(),"recipient":hex(receiver.as_ref())})
         }
         "route_deposit" => {
             let m = localnet.manifest()?;
@@ -745,7 +764,8 @@ pub(super) fn run(localnet: &Localnet) -> Result<()> {
                 "route kind/project mismatch",
             )?;
             let lp = localnet.key("liquidity", false)?;
-            let escrow = record(project, b"bridge-escrow", &route);
+            let receiver = record(project, b"bridge-route", &route);
+            let escrow = bridge::route_escrow(project, address(&m["asset"]["address"])?, route);
             let tx = localnet.send(
                 &lp,
                 &[spl_token::instruction::transfer_checked(
@@ -761,7 +781,7 @@ pub(super) fn run(localnet: &Localnet) -> Result<()> {
                 &[],
             )?;
             json!({
-                "proof":localnet.finalized_proof(&tx)?, "escrow":escrow.to_string(),
+                "proof":localnet.finalized_proof(&tx)?, "receiver":receiver.to_string(), "escrow":escrow.to_string(),
                 "escrow_balance":localnet.finalized_token(escrow)?.amount.to_string()
             })
         }
@@ -782,7 +802,11 @@ pub(super) fn run(localnet: &Localnet) -> Result<()> {
                         vault: address(&m["contracts"]["vault"])?,
                         route: record(project, b"bridge-route", &route),
                         plan: record(project, b"bridge-plan", &r.plan),
-                        escrow: record(project, b"bridge-escrow", &route),
+                        escrow: bridge::route_escrow(
+                            project,
+                            address(&m["asset"]["address"])?,
+                            route,
+                        ),
                         token_program: spl_token::ID,
                     },
                 )],

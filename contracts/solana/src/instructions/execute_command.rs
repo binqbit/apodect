@@ -1,5 +1,4 @@
 use anchor_lang::prelude::*;
-use anchor_lang::solana_program::program_pack::Pack;
 use anchor_spl::token::{self, Mint, Token, TokenAccount, TransferChecked};
 
 use crate::bridge::{
@@ -29,6 +28,9 @@ pub struct ExecuteCommand<'info> {
     pub payer: Signer<'info>,
     pub system_program: Program<'info, System>,
     pub token_program: Program<'info, Token>,
+    /// CHECK: Only the official Associated Token Account program can create route custody.
+    #[account(address = bridge::ASSOCIATED_TOKEN_PROGRAM)]
+    pub associated_token_program: UncheckedAccount<'info>,
     #[account(mut, has_one = project)]
     pub task: Option<Account<'info, Task>>,
     /// CHECK: Exact command identity and typed record checked in the matching action.
@@ -40,7 +42,7 @@ pub struct ExecuteCommand<'info> {
     /// CHECK: Project/route PDA and typed record checked before use; created only by Expect.
     #[account(mut)]
     pub route: Option<UncheckedAccount<'info>>,
-    /// CHECK: Fixed route token PDA, initialized by Expect with legacy token owner/mint.
+    /// CHECK: Canonical ATA of the route PDA, checked and initialized by Expect.
     #[account(mut)]
     pub escrow: Option<UncheckedAccount<'info>>,
     #[account(mut, token::mint = mint)]
@@ -239,28 +241,16 @@ fn execute_custody(accounts: &mut ExecuteCommand, command: &Command) -> Result<[
             .as_ref()
             .ok_or(ContractError::WrongBridgeAccount)?;
         let route_seeds: &[&[u8]] = &[b"bridge-route", project.as_ref(), &command.reference];
-        let escrow_seeds: &[&[u8]] = &[b"bridge-escrow", project.as_ref(), &command.reference];
         bridge::check_pda(route_account, route_seeds)?;
         require!(
             bridge::load::<BridgeRoute>(route_account)?.is_none(),
             ContractError::InvalidRoute
         );
-        bridge::create_pda(
-            escrow,
-            &accounts.payer,
-            &accounts.system_program,
-            escrow_seeds,
-            anchor_spl::token::spl_token::state::Account::LEN,
-            accounts.token_program.key(),
-        )?;
-        token::initialize_account3(CpiContext::new(
-            accounts.token_program.key(),
-            token::InitializeAccount3 {
-                account: escrow.to_account_info(),
-                mint: accounts.mint.to_account_info(),
-                authority: accounts.project.to_account_info(),
-            },
-        ))?;
+        require_keys_eq!(
+            escrow.key(),
+            bridge::associated_account(route_account.key(), accounts.mint.key()),
+            ContractError::WrongBridgeAccount
+        );
         bridge::create_record(
             route_account,
             &accounts.payer,
@@ -280,6 +270,22 @@ fn execute_custody(accounts: &mut ExecuteCommand, command: &Command) -> Result<[
                 received: 0,
                 dispatched: 0,
             },
+        )?;
+        anchor_lang::solana_program::program::invoke(
+            &bridge::create_associated_account(
+                accounts.payer.key(),
+                route_account.key(),
+                accounts.mint.key(),
+            ),
+            &[
+                accounts.payer.to_account_info(),
+                escrow.to_account_info(),
+                route_account.to_account_info(),
+                accounts.mint.to_account_info(),
+                accounts.system_program.to_account_info(),
+                accounts.token_program.to_account_info(),
+                accounts.associated_token_program.to_account_info(),
+            ],
         )?;
     } else if command.action == action::DISPATCH {
         let route_account = accounts
@@ -306,7 +312,12 @@ fn execute_custody(accounts: &mut ExecuteCommand, command: &Command) -> Result<[
             .as_ref()
             .ok_or(ContractError::WrongBridgeAccount)?;
         require!(
-            recipient.key().to_bytes() == command.recipient
+            recipient.owner.to_bytes() == command.recipient
+                && recipient.key()
+                    == bridge::associated_account(
+                        Pubkey::new_from_array(command.recipient),
+                        accounts.mint.key(),
+                    )
                 && recipient.key() != accounts.vault.key(),
             ContractError::WrongBridgeAccount
         );

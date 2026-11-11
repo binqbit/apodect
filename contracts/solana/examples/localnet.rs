@@ -203,7 +203,16 @@ impl Localnet {
             )?;
             self.confirm(signature.as_str().ok_or("missing LP airdrop")?)?;
             let mint = address(&manifest["asset"]["address"])?;
-            let token = self.create_token(&owner, mint, lp.pubkey())?;
+            let token = apodect_solana::bridge::associated_account(lp.pubkey(), mint);
+            self.send(
+                &owner,
+                &[apodect_solana::bridge::create_associated_account(
+                    owner.pubkey(),
+                    lp.pubkey(),
+                    mint,
+                )],
+                &[],
+            )?;
             let tx = self.send(
                 &owner,
                 &[spl_token::instruction::transfer_checked(

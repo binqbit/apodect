@@ -874,6 +874,7 @@ dependencies = [
  "anchor-spl",
  "solana-secp256k1-recover",
  "solana-sha256-hasher",
+ "spl-associated-token-account-interface",
 ]
 
 [[package]]

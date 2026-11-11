@@ -17,6 +17,7 @@ from protocol import (
     ZERO,
     Action,
     CommandState,
+    base58_encode,
     canonical_json,
     decode_checkpoint,
     digest,
@@ -225,6 +226,35 @@ class TransportProvenanceTests(TransportFixture):
             ("ethereum", "solana", 110),
         )
         self.network.verify_evidence.assert_called_once()
+
+    def test_solana_quote_targets_route_owner_instead_of_its_token_account(self):
+        route = Chain.__new__(Chain)
+        route.name = "solana"
+        token_account = base58_encode(bytes([99]) * 32)
+        route.bridge = Mock(
+            return_value={
+                "receiver": self.destination_escrow,
+                "escrow": token_account,
+            }
+        )
+        self.network.chains["solana"] = route
+        self.assertEqual(
+            self.provider.verify_dispatch(
+                self.route_id, self.metadata, self.evidence()
+            ),
+            ("ethereum", "solana", 110),
+        )
+
+        self.request["recipient"] = token_account
+        self.quote["recipient"] = token_account
+        self.quote["quote_hash"] = digest(canonical_json(self.response)).hex()
+        self.journal.put(
+            "quote",
+            raw_id(self.route_id),
+            {"request": self.request, "response": self.response},
+        )
+        with self.assertRaisesRegex(ValueError, "registered route custody"):
+            self.provider.verify_dispatch(self.route_id, self.metadata, self.evidence())
 
     def test_wrong_lp_recipient_is_rejected_even_with_matching_command_receipt(self):
         self.command["recipient"] = identity(9)

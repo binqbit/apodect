@@ -97,6 +97,7 @@ fn command_accounts(f: &Fixture, c: &Cmd) -> accounts::ExecuteCommand {
         payer: f.owner.pubkey(),
         system_program: solana_system_interface::program::ID,
         token_program: spl_token::ID,
+        associated_token_program: ASSOCIATED_TOKEN_PROGRAM,
         task: (c.0[5] != [0; 32]).then(|| Pubkey::new_from_array(c.0[5])),
         request: if matches!(action, 8 | 12 | 13) {
             let task = f.task(Pubkey::new_from_array(c.0[5]));
@@ -116,13 +117,26 @@ fn command_accounts(f: &Fixture, c: &Cmd) -> accounts::ExecuteCommand {
             .contains(&action)
             .then(|| address(f, b"bridge-plan", c.0[4])),
         route: matches!(action, 2 | 3 | 4).then(|| address(f, b"bridge-route", c.0[11])),
-        escrow: matches!(action, 2 | 3).then(|| address(f, b"bridge-escrow", c.0[11])),
-        recipient: matches!(action, 4 | 14).then(|| Pubkey::new_from_array(c.0[9])),
+        escrow: matches!(action, 2 | 3).then(|| route_escrow(f.project, f.mint, c.0[11])),
+        recipient: match action {
+            4 => Some(associated_account(Pubkey::new_from_array(c.0[9]), f.mint)),
+            14 => Some(Pubkey::new_from_array(c.0[9])),
+            _ => None,
+        },
         target: (action == 15).then(|| address(f, b"bridge-command", c.0[11])),
     }
 }
 fn execute(f: &mut Fixture, c: &Cmd) -> Result<(), String> {
-    f.run(c.signed(), command_accounts(f, c), Role::Owner)
+    let mut instructions = Vec::new();
+    if integer(&c.0[2]).unwrap() == 4 {
+        instructions.push(create_associated_account(
+            f.owner.pubkey(),
+            Pubkey::new_from_array(c.0[9]),
+            f.mint,
+        ));
+    }
+    instructions.push(ix(c.signed(), command_accounts(f, c)));
+    send(&mut f.svm, &f.owner, &instructions, &[])
 }
 fn collect(f: &mut Fixture, route: u8, plan: u8) -> Result<(), String> {
     let instruction = ix(
@@ -133,7 +147,7 @@ fn collect(f: &mut Fixture, route: u8, plan: u8) -> Result<(), String> {
             vault: f.vault,
             route: address(f, b"bridge-route", id(route)),
             plan: address(f, b"bridge-plan", id(plan)),
-            escrow: address(f, b"bridge-escrow", id(route)),
+            escrow: route_escrow(f.project, f.mint, id(route)),
             token_program: spl_token::ID,
         },
     );
@@ -141,7 +155,7 @@ fn collect(f: &mut Fixture, route: u8, plan: u8) -> Result<(), String> {
 }
 
 fn deposit(f: &mut Fixture, route: u8, amount: u64) {
-    let token = address(f, b"bridge-escrow", id(route));
+    let token = route_escrow(f.project, f.mint, id(route));
     let ix = spl_token::instruction::transfer_checked(
         &spl_token::ID,
         &f.owner_token,
@@ -258,18 +272,18 @@ fn command_authentication_canonical_encoding_replay_and_invalidation_are_atomic(
 #[test]
 fn delivery_partial_escrow_exact_collection_and_closed_plan_late_credit() {
     let mut f = Fixture::new();
-    let owner_token = f.owner_token;
+    let owner = f.owner.pubkey();
     bind(&mut f);
     execute(&mut f, &Cmd::new(1, 1).plan(1)).unwrap();
     execute(&mut f, &Cmd::new(2, 2).plan(1).set(11, id(9)).amount(100)).unwrap();
     deposit(&mut f, 9, 40);
     rejects(collect(&mut f, 9, 1), "InvalidRoute");
     assert_eq!(f.project_state().held, 0);
-    assert_eq!(f.tokens(address(&f, b"bridge-escrow", id(9))), 40);
+    assert_eq!(f.tokens(route_escrow(f.project, f.mint, id(9))), 40);
     deposit(&mut f, 9, 70);
     collect(&mut f, 9, 1).unwrap();
     assert_eq!(f.project_state().held, 100);
-    assert_eq!(f.tokens(address(&f, b"bridge-escrow", id(9))), 10);
+    assert_eq!(f.tokens(route_escrow(f.project, f.mint, id(9))), 10);
     rejects(collect(&mut f, 9, 1), "InvalidRoute");
     execute(&mut f, &Cmd::new(6, 3).plan(1)).unwrap();
     assert_eq!(f.project_state().free, 1100);
@@ -280,7 +294,7 @@ fn delivery_partial_escrow_exact_collection_and_closed_plan_late_credit() {
                 .plan(1)
                 .amount(1)
                 .set(11, id(9))
-                .set(9, owner_token.to_bytes()),
+                .set(9, owner.to_bytes()),
         ),
         "InvalidPlan",
     );
@@ -296,19 +310,27 @@ fn delivery_partial_escrow_exact_collection_and_closed_plan_late_credit() {
 #[test]
 fn dispatch_and_actual_refunds_are_bounded_and_never_minted_from_observations() {
     let mut f = Fixture::new();
-    let owner_token = f.owner_token;
+    let owner = f.owner.pubkey();
+    let owner_token = associated_account(owner, f.mint);
     bind(&mut f);
     execute(&mut f, &Cmd::new(1, 1).plan(1).amount(200)).unwrap();
     execute(&mut f, &Cmd::new(3, 2).plan(1).set(11, id(9)).amount(200)).unwrap();
     let dispatch = Cmd::new(4, 3)
         .plan(1)
         .set(11, id(9))
-        .set(9, owner_token.to_bytes())
+        .set(9, owner.to_bytes())
         .amount(150);
-    let before = f.tokens(f.owner_token);
+    let mut substituted = command_accounts(&f, &dispatch);
+    substituted.recipient = Some(f.owner_token);
+    rejects(
+        f.run(dispatch.signed(), substituted, Role::Owner),
+        "WrongBridgeAccount",
+    );
+    assert_eq!(f.project_state().held, 200);
+    assert!(f.svm.get_account(&owner_token).is_none());
     execute(&mut f, &dispatch).unwrap();
     execute(&mut f, &dispatch).unwrap();
-    assert_eq!(f.tokens(f.owner_token), before + 150);
+    assert_eq!(f.tokens(owner_token), 150);
     assert_eq!(f.project_state().held, 50);
     rejects(
         execute(
@@ -316,7 +338,7 @@ fn dispatch_and_actual_refunds_are_bounded_and_never_minted_from_observations() 
             &Cmd::new(4, 4)
                 .plan(1)
                 .set(11, id(9))
-                .set(9, owner_token.to_bytes())
+                .set(9, owner.to_bytes())
                 .amount(1),
         ),
         "InvalidRoute",
@@ -328,7 +350,7 @@ fn dispatch_and_actual_refunds_are_bounded_and_never_minted_from_observations() 
     deposit(&mut f, 9, 140);
     collect(&mut f, 9, 1).unwrap();
     assert_eq!(f.project_state().free, 950);
-    assert_eq!(f.tokens(address(&f, b"bridge-escrow", id(9))), 10);
+    assert_eq!(f.tokens(route_escrow(f.project, f.mint, id(9))), 10);
     rejects(collect(&mut f, 9, 1), "ZeroAmount");
     execute(&mut f, &Cmd::new(6, 5).plan(1)).unwrap();
     assert_eq!(f.project_state().free, 1000);
@@ -476,11 +498,14 @@ fn frozen_dispatch_failure_rolls_back_hold_route_and_command_receipt() {
     bind(&mut f);
     execute(&mut f, &Cmd::new(1, 1).plan(1).amount(100)).unwrap();
     execute(&mut f, &Cmd::new(3, 2).plan(1).set(11, id(9)).amount(100)).unwrap();
-    let owner_token = f.owner_token;
+    let owner = f.owner.pubkey();
+    let owner_token = associated_account(owner, f.mint);
+    let create = create_associated_account(owner, owner, f.mint);
+    send(&mut f.svm, &f.owner, &[create], &[]).unwrap();
     let dispatch = Cmd::new(4, 3)
         .plan(1)
         .set(11, id(9))
-        .set(9, owner_token.to_bytes())
+        .set(9, owner.to_bytes())
         .amount(100);
     let freeze = spl_token::instruction::freeze_account(
         &spl_token::ID,
@@ -688,7 +713,7 @@ fn prefunded_bridge_pdas_initialize_without_reinitializing_existing_records() {
     let plan = address(&f, b"bridge-plan", id(1));
     let receipt = address(&f, b"bridge-command", id(1));
     let route = address(&f, b"bridge-route", id(9));
-    let escrow = address(&f, b"bridge-escrow", id(9));
+    let escrow = route_escrow(f.project, f.mint, id(9));
     let transfers: Vec<_> = [plan, receipt, route, escrow]
         .into_iter()
         .map(|target| {
