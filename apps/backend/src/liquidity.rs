@@ -49,12 +49,26 @@ pub enum FundingProposal {
     Waiting {
         #[serde(with = "crate::decimal_u64")]
         shortfall: u64,
+        reason: FundingWaitReason,
     },
     Ready {
         authority: String,
         call: FunctionCallIntent,
         costs: FundingCosts,
     },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FundingWaitReason {
+    InsufficientLiquidity,
+    ProviderQuoteUnavailable,
+}
+
+enum QuoteAvailability {
+    Affordable,
+    InsufficientLiquidity,
+    ProviderDeclined,
 }
 
 #[derive(Debug, Serialize)]
@@ -214,22 +228,38 @@ impl Liquidity {
         &self,
         request: &mut QuoteRequest,
         available: u64,
-    ) -> Result<Option<Quote>> {
+    ) -> Result<QuoteAvailability> {
+        ensure!(
+            request.dry,
+            "Affordability probes must not allocate deposit addresses"
+        );
         for _ in 0..64 {
-            let quote = self.quote(request).await?;
+            let quote = match self.quote(request).await {
+                Ok(quote) => quote,
+                Err(error)
+                    if error.downcast_ref::<reqwest::Error>().is_some_and(|error| {
+                        error.status() == Some(reqwest::StatusCode::BAD_REQUEST)
+                    }) =>
+                {
+                    // A provider may decline a small/unsupported quote with HTTP 400.
+                    // Its prose is not a machine contract, and no funds are reserved.
+                    return Ok(QuoteAvailability::ProviderDeclined);
+                }
+                Err(error) => return Err(error),
+            };
             if quote.input <= available {
-                return Ok(Some(quote));
+                return Ok(QuoteAvailability::Affordable);
             }
             // This only chooses the next amount to ask about. The provider must quote
             // it again; a proportional estimate never establishes affordability.
             let output =
                 (u128::from(quote.output) * u128::from(available)) / u128::from(quote.input);
             if output == 0 {
-                return Ok(None);
+                return Ok(QuoteAvailability::InsufficientLiquidity);
             }
             request.amount = u64::try_from(output)?.to_string();
         }
-        Ok(None)
+        Ok(QuoteAvailability::InsufficientLiquidity)
     }
 
     /// This response is diagnostic only; it cannot settle dispatch, delivery or refund accounting.
@@ -305,9 +335,9 @@ impl Liquidity {
             )
             .await?
         };
-        let (shortfall, quotes) = self.quote_routes(candidates, required).await?;
+        let (shortfall, quotes, reason) = self.quote_routes(candidates, required).await?;
         if shortfall > 0 {
-            return Ok(FundingProposal::Waiting { shortfall });
+            return Ok(FundingProposal::Waiting { shortfall, reason });
         }
 
         let mut routes = Vec::with_capacity(quotes.len());
@@ -364,19 +394,24 @@ impl Liquidity {
         &self,
         candidates: Vec<RouteCandidate>,
         mut required: u64,
-    ) -> Result<(u64, Vec<QuotedRoute>)> {
+    ) -> Result<(u64, Vec<QuotedRoute>, FundingWaitReason)> {
         let mut quotes = Vec::new();
+        let mut reason = FundingWaitReason::InsufficientLiquidity;
         for mut candidate in candidates {
             if required == 0 {
                 break;
             }
             candidate.request.amount = required.min(candidate.available).to_string();
-            if self
+            match self
                 .affordable_quote(&mut candidate.request, candidate.available)
                 .await?
-                .is_none()
             {
-                continue;
+                QuoteAvailability::Affordable => {}
+                QuoteAvailability::InsufficientLiquidity => continue,
+                QuoteAvailability::ProviderDeclined => {
+                    reason = FundingWaitReason::ProviderQuoteUnavailable;
+                    continue;
+                }
             }
             candidate.request.dry = false;
             candidate.request.correlation_id =
@@ -410,7 +445,7 @@ impl Liquidity {
                 response: quote.response,
             });
         }
-        Ok((required, quotes))
+        Ok((required, quotes, reason))
     }
 
     async fn request(&self, mut request: RequestBuilder) -> Result<Value> {
@@ -883,10 +918,20 @@ mod tests {
 
         let server = HttpServer::new(|| App::new().route("/v0/quote", web::post().to(
             |request: web::Json<QuoteRequest>| async move {
+                match request.origin_asset.as_str() {
+                    "dry-decline" if request.dry => return HttpResponse::BadRequest().json(json!({"message":"Provider-specific explanation"})),
+                    "live-decline" if !request.dry => return HttpResponse::BadRequest().finish(),
+                    "unavailable" => return HttpResponse::ServiceUnavailable().finish(),
+                    "unauthorized" => return HttpResponse::Unauthorized().finish(),
+                    _ => {}
+                }
                 let output: u64 = request.amount.parse().unwrap();
                 let input = output + 10 + output / 10;
                 let mut quote = json!({"amountIn": input.to_string(), "minAmountIn": input.to_string(),
                     "amountOut": output.to_string(), "minAmountOut": output.to_string()});
+                if request.origin_asset == "bad-terms" {
+                    quote["amountOut"] = (output + 1).to_string().into();
+                }
                 if !request.dry {
                     quote["depositAddress"] = if request.origin_asset == "ethereum-usdc" {
                         "0x1111111111111111111111111111111111111111".into()
@@ -903,39 +948,38 @@ mod tests {
         let server = server.run();
         let handle = server.handle();
         actix_web::rt::spawn(server);
-        let liquidity = Liquidity::new(&LiquidityConfig {
+        let mut liquidity = Liquidity::new(&LiquidityConfig {
             url,
             local_simulator: true,
             api_key_file: None,
         })
         .unwrap();
-        let candidates = [(Chain::Ethereum, 100), (Chain::Near, 60)]
-            .into_iter()
-            .enumerate()
-            .map(|(index, (chain, available))| RouteCandidate {
-                chain,
-                domain: format!("{:064x}", index + 1),
-                route: format!("{:064x}", index + 10),
-                available,
-                request: QuoteRequest {
-                    dry: true,
-                    swap_type: "EXACT_OUTPUT".into(),
-                    slippage_tolerance: 20,
-                    origin_asset: format!("{chain}-usdc"),
-                    destination_asset: "solana-usdc".into(),
-                    deposit_type: "ORIGIN_CHAIN".into(),
-                    recipient_type: "DESTINATION_CHAIN".into(),
-                    refund_type: "ORIGIN_CHAIN".into(),
-                    recipient: "destination".into(),
-                    refund_to: format!("refund-{chain}"),
-                    amount: available.to_string(),
-                    deadline: "2030-01-01T00:00:00Z".into(),
-                    correlation_id: None,
-                },
-            })
-            .collect();
-        let (shortfall, quotes) = liquidity.quote_routes(candidates, 100).await.unwrap();
-        handle.stop(true).await;
+        let candidate = |chain: Chain, available, asset: &str| RouteCandidate {
+            chain,
+            domain: format!("{:064x}", if chain == Chain::Ethereum { 1 } else { 2 }),
+            route: random_identity(),
+            available,
+            request: QuoteRequest {
+                dry: true,
+                swap_type: "EXACT_OUTPUT".into(),
+                slippage_tolerance: 20,
+                origin_asset: asset.into(),
+                destination_asset: "solana-usdc".into(),
+                deposit_type: "ORIGIN_CHAIN".into(),
+                recipient_type: "DESTINATION_CHAIN".into(),
+                refund_type: "ORIGIN_CHAIN".into(),
+                recipient: "destination".into(),
+                refund_to: format!("refund-{chain}"),
+                amount: available.to_string(),
+                deadline: "2030-01-01T00:00:00Z".into(),
+                correlation_id: None,
+            },
+        };
+        let candidates = vec![
+            candidate(Chain::Ethereum, 100, "ethereum-usdc"),
+            candidate(Chain::Near, 60, "near-usdc"),
+        ];
+        let (shortfall, quotes, _) = liquidity.quote_routes(candidates, 100).await.unwrap();
 
         assert_eq!(shortfall, 0);
         assert_eq!(quotes.len(), 2);
@@ -965,6 +1009,54 @@ mod tests {
                 hex::encode(Sha256::digest(canonical_json(&quote.response).unwrap()))
             );
         }
+
+        let (shortfall, routes, _) = liquidity
+            .quote_routes(
+                vec![
+                    candidate(Chain::Ethereum, 200, "dry-decline"),
+                    candidate(Chain::Near, 200, "near-usdc"),
+                ],
+                100,
+            )
+            .await
+            .unwrap();
+        assert_eq!(shortfall, 0);
+        assert_eq!(routes.len(), 1);
+        assert_eq!(routes[0].route.output, 100);
+
+        let (shortfall, routes, reason) = liquidity
+            .quote_routes(vec![candidate(Chain::Ethereum, 200, "dry-decline")], 100)
+            .await
+            .unwrap();
+        assert_eq!(shortfall, 100);
+        assert!(routes.is_empty());
+        assert_eq!(reason, FundingWaitReason::ProviderQuoteUnavailable);
+        let (shortfall, routes, reason) = liquidity
+            .quote_routes(vec![candidate(Chain::Near, 5, "near-usdc")], 100)
+            .await
+            .unwrap();
+        assert_eq!(shortfall, 100);
+        assert!(routes.is_empty());
+        assert_eq!(reason, FundingWaitReason::InsufficientLiquidity);
+
+        for asset in ["unavailable", "unauthorized", "live-decline", "bad-terms"] {
+            assert!(
+                liquidity
+                    .quote_routes(vec![candidate(Chain::Near, 200, asset)], 100)
+                    .await
+                    .is_err(),
+                "{asset} must remain an explicit preparation error"
+            );
+        }
+        liquidity.local_simulator = false;
+        assert!(
+            liquidity
+                .quote_routes(vec![candidate(Chain::Near, 200, "unsigned")], 100)
+                .await
+                .is_err(),
+            "an unsigned quote must not become an availability shortfall"
+        );
+        handle.stop(true).await;
     }
 
     #[test]

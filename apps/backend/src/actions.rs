@@ -15,7 +15,7 @@ use crate::{
     chains::{near, protocol::word_number},
     config::{Chain, ProjectConfig, word},
     indexing::Indexer,
-    liquidity::{FundingCosts, FundingProposal, Liquidity},
+    liquidity::{FundingCosts, FundingProposal, FundingWaitReason, Liquidity},
 };
 use alloy_primitives::{Address, B256, U256};
 use anchor_lang::prelude::Pubkey;
@@ -70,6 +70,7 @@ pub enum ApplyPreparation {
     Waiting {
         #[serde(with = "crate::decimal_u64")]
         shortfall: u64,
+        reason: FundingWaitReason,
     },
     Ready {
         intent: UnsignedIntent,
@@ -119,7 +120,9 @@ impl<'a> Actions<'a> {
             )
             .await?
         {
-            FundingProposal::Waiting { shortfall } => Ok(ApplyPreparation::Waiting { shortfall }),
+            FundingProposal::Waiting { shortfall, reason } => {
+                Ok(ApplyPreparation::Waiting { shortfall, reason })
+            }
             FundingProposal::Ready {
                 authority,
                 call,

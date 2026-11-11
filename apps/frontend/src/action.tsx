@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link, useLocation } from "react-router-dom";
 import {
   api,
+  type ApplyPreparation,
   type FundingCosts,
   type ProjectDetail,
   type UnsignedIntent,
@@ -121,7 +122,10 @@ export function ActionDialog({
     project: ProjectDetail;
   } | null>(null);
   const intent = prepared?.intent ?? null;
-  const [shortfall, setShortfall] = useState<string | null>(null);
+  const [waiting, setWaiting] = useState<Extract<
+    ApplyPreparation,
+    { status: "waiting" }
+  > | null>(null);
   const [error, setError] = useState<unknown>();
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<WalletProgress[]>([]);
@@ -272,7 +276,7 @@ export function ActionDialog({
     event.preventDefault();
     setBusy(true);
     setError(undefined);
-    setShortfall(null);
+    setWaiting(null);
     try {
       if (
         ["task", "request", "plan", "invoice", "command"].some(
@@ -341,7 +345,7 @@ export function ActionDialog({
           },
         });
         if (reply.status === "waiting") {
-          setShortfall(reply.shortfall);
+          setWaiting(reply);
           return;
         }
         prepared = reply.intent;
@@ -528,12 +532,18 @@ export function ActionDialog({
               : "This action could not be completed."}
           </Notice>
         )}
-        {shortfall !== null && (
+        {waiting !== null && (
           <Notice>
-            <strong>Waiting for project funding.</strong>
+            <strong>
+              {waiting.reason === "provider_quote_unavailable"
+                ? "A funding route is currently unavailable."
+                : "Waiting for project funding."}
+            </strong>
             <p>
-              The full request cannot currently be covered. Shortfall:{" "}
-              <Money value={shortfall} />. No allocation was made.
+              {waiting.reason === "provider_quote_unavailable"
+                ? "The provider could not quote all of the remaining amount. Try again or fund the destination network. Remaining: "
+                : "The full request cannot currently be covered. Shortfall: "}
+              <Money value={waiting.shortfall} />. No allocation was made.
             </p>
           </Notice>
         )}

@@ -273,7 +273,11 @@ export interface FundingCosts {
   warnings: { route: string; fee: Amount; threshold_bps: number }[];
 }
 export type ApplyPreparation =
-  | { status: "waiting"; shortfall: Amount }
+  | {
+      status: "waiting";
+      shortfall: Amount;
+      reason: "insufficient_liquidity" | "provider_quote_unavailable";
+    }
   | { status: "ready"; intent: UnsignedIntent; costs: FundingCosts };
 export interface LocalPreparation {
   actor: string;
