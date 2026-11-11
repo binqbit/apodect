@@ -54,12 +54,21 @@ async fn execute(owner: &Account, project: &AccountId, name: &str) -> Result<Val
     } else {
         Value::Null
     };
+    let mut deposit = NearToken::from_millinear(100).as_yoctonear();
+    if matches!(name, "delivery" | "refund") {
+        let deployment: String = owner
+            .view(project, "route_deployment_deposit")
+            .args_json(json!({}))
+            .await?
+            .json()?;
+        deposit += deployment.parse::<u128>()?;
+    }
     call(
         owner,
         project,
         "execute_command",
         args,
-        NearToken::from_near(5),
+        NearToken::from_yoctonear(deposit),
     )
     .await
 }

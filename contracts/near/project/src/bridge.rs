@@ -13,6 +13,7 @@ use near_sdk::{AccountId, Gas, NearToken, Promise, PromiseOrValue, env, near, re
 const ESCROW_WASM: &[u8] = include_bytes!("../../artifacts/apodect_near_route_escrow.wasm");
 #[cfg(not(target_arch = "wasm32"))]
 const ESCROW_WASM: &[u8] = &[];
+const ROUTE_TOKEN_REGISTRATION: NearToken = NearToken::from_millinear(10);
 
 #[near(serializers = [borsh])]
 pub(crate) struct Binding {
@@ -128,6 +129,12 @@ impl Project {
         format!("r{}.{}", &hex(&id)[..24], env::current_account_id())
             .parse()
             .expect("ROUTE_ACCOUNT_TOO_LONG")
+    }
+
+    /// Native balance consumed by deploying an escrow and registering its token account.
+    /// The caller also covers the Project's ordinary storage growth when executing.
+    pub fn route_deployment_deposit(&self) -> U128 {
+        U128(Self::route_escrow_balance() + ROUTE_TOKEN_REGISTRATION.as_yoctonear())
     }
 
     pub fn get_funding(&self, funding_id: String) -> Option<String> {
@@ -255,10 +262,8 @@ impl Project {
                     "ROUTE_ALREADY_EXISTS"
                 );
                 let receiver = self.route_receiver(hex(&route));
-                let balance = (ESCROW_WASM.len() as u128 + 4096)
-                    * env::storage_byte_cost().as_yoctonear()
-                    + NearToken::from_millinear(100).as_yoctonear();
-                native_used = balance + NearToken::from_millinear(10).as_yoctonear();
+                let balance = Self::route_escrow_balance();
+                native_used = balance + ROUTE_TOKEN_REGISTRATION.as_yoctonear();
                 self.bridge.routes.insert(
                     route,
                     Route {
@@ -483,7 +488,7 @@ impl Project {
             })
             .to_string()
             .into_bytes(),
-            NearToken::from_millinear(10),
+            ROUTE_TOKEN_REGISTRATION,
             Gas::from_tgas(30),
         )
     }
@@ -663,6 +668,11 @@ impl Project {
 }
 
 impl Project {
+    fn route_escrow_balance() -> u128 {
+        (ESCROW_WASM.len() as u128 + 4096) * env::storage_byte_cost().as_yoctonear()
+            + NearToken::from_millinear(100).as_yoctonear()
+    }
+
     /// Pending outflows retain capacity until the token receipt confirms success.
     pub(crate) fn account_custody_ingress(&mut self, amount: u128) {
         if self.bridge.binding.is_some() {
