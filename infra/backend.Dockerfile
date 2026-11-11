@@ -12,13 +12,13 @@ FROM build AS development-build
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/app/apps/target \
     cargo build --locked -p apodect-backend \
-    && cp target/debug/apodect-backend /usr/local/bin/
+    && cp target/debug/apodect-backend target/debug/apodect-worker /usr/local/bin/
 
 FROM build AS production-build
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/app/apps/target \
     cargo build --locked --release -p apodect-backend \
-    && cp target/release/apodect-backend /usr/local/bin/
+    && cp target/release/apodect-backend target/release/apodect-worker /usr/local/bin/
 
 FROM debian:bookworm-slim@sha256:734a72b3d6142a71993b4bc580ca01d8ca687f77a2c422d96a961d3376b179bc AS runtime
 RUN apt-get update \

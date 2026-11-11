@@ -26,6 +26,7 @@ chrono = { version = "=0.4.45", features = ["serde"] }
 rand = "=0.8.8"
 ed25519-dalek = "=2.2.0"
 borsh = { version = "=1.8.1", features = ["derive"] }
+rdkafka = { version = "=0.39.0", default-features = false, features = ["tokio"] }
 near-crypto = "=0.38.0"
 near-primitives = "=0.38.0"
 alloy-primitives = { version = "=1.7.3", features = ["serde"] }

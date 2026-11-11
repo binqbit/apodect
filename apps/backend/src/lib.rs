@@ -3,8 +3,11 @@ pub mod actions;
 pub mod chains;
 pub mod config;
 pub mod database;
+pub mod events;
 pub mod indexing;
 pub mod liquidity;
+pub mod operations;
+pub mod relay;
 pub mod rpc;
 pub mod storage;
 
