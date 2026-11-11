@@ -59,9 +59,40 @@ export function Money({
 }
 
 export function Address({ value }: { value: string }) {
+  const [feedback, setFeedback] = useState("");
+  useEffect(() => {
+    setFeedback("");
+  }, [value]);
+  useEffect(() => {
+    if (!feedback) return;
+    const timer = window.setTimeout(() => setFeedback(""), 2500);
+    return () => window.clearTimeout(timer);
+  }, [feedback]);
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(value);
+      setFeedback("Copied");
+    } catch {
+      setFeedback("Select the value to copy it");
+    }
+  }
   return (
-    <span className="address" title={value}>
-      {short(value, 9)}
+    <span className="address-control">
+      <span className="address" title={value}>
+        {feedback.startsWith("Select") ? value : short(value, 9)}
+      </span>
+      <button
+        type="button"
+        className="copy-button"
+        onClick={() => void copy()}
+        aria-label={`Copy ${value}`}
+        title="Copy full value"
+      >
+        ⧉
+      </button>
+      <span className="copy-feedback" role="status">
+        {feedback}
+      </span>
     </span>
   );
 }

@@ -16,7 +16,13 @@ import {
   Route,
   Routes,
 } from "react-router-dom";
-import { api, ApiError, type Account, type PublicConfig } from "./api";
+import {
+  api,
+  ApiError,
+  sessionEvents,
+  type Account,
+  type PublicConfig,
+} from "./api";
 import { sameAddress, type ConnectedWallet } from "./wallets";
 import { Landing } from "./landing";
 import { AccountPage, ProjectsPage } from "./pages";
@@ -50,6 +56,11 @@ function SessionProvider({ children }: { children: ReactNode }) {
     updateAccount(value);
     if (!value) setWallets([]);
   }, []);
+  useEffect(() => {
+    const expire = () => setAccount(null);
+    sessionEvents.addEventListener("expired", expire);
+    return () => sessionEvents.removeEventListener("expired", expire);
+  }, [setAccount]);
   const refreshAccount = useCallback(async () => {
     try {
       setAccount(await api.account());
@@ -107,8 +118,29 @@ function SessionProvider({ children }: { children: ReactNode }) {
 function WorkspaceLayout() {
   const { account, config } = useSession();
   const location = useLocation();
+  const section = location.pathname.split("/")[4];
+  const pageName =
+    location.pathname === "/app/account"
+      ? "Account & wallets"
+      : location.pathname.startsWith("/app/projects/")
+        ? ({
+            tasks: "Tasks & queue",
+            funding: "Funding",
+            activity: "Activity",
+            settings: "Settings",
+          }[section ?? ""] ?? "Project overview")
+        : "Projects";
+  useEffect(() => {
+    document.title = `${pageName} · Apodect`;
+    return () => {
+      document.title = "Apodect";
+    };
+  }, [pageName]);
   return (
     <div className="app-shell">
+      <a className="skip-link" href="#workspace-content">
+        Skip to content
+      </a>
       <aside className="sidebar">
         <Brand />
         <nav aria-label="Workspace navigation">
@@ -145,10 +177,18 @@ function WorkspaceLayout() {
       <div className="app-main">
         <header className="app-header">
           <div className="header-breadcrumb">
-            Workspace <span aria-hidden="true">/</span>
-            <strong>Budget coordination</strong>
+            <Link to="/app">Workspace</Link> <span aria-hidden="true">/</span>
+            <strong>{pageName}</strong>
           </div>
-          <Link to="/app/account" className="account-link">
+          <Link
+            to="/app/account"
+            state={{
+              returnTo: location.pathname.startsWith("/app/projects/")
+                ? `${location.pathname}${location.search}${location.hash}`
+                : "/app",
+            }}
+            className="account-link"
+          >
             <span className="avatar" aria-hidden="true">
               {account?.session.profile.display_name
                 ?.slice(0, 1)
@@ -166,7 +206,7 @@ function WorkspaceLayout() {
             <span>Test tokens · Simulated liquidity and MPC providers</span>
           </div>
         )}
-        <main className="app-content">
+        <main className="app-content" id="workspace-content" tabIndex={-1}>
           <Outlet />
         </main>
       </div>
@@ -176,10 +216,21 @@ function WorkspaceLayout() {
 
 function Authenticated({ children }: { children: ReactNode }) {
   const { account, loading, error } = useSession();
+  const destination = useLocation();
   if (loading) return <Loading>Connecting to your workspace…</Loading>;
   if (error)
     return <ErrorState error={error} retry={() => location.reload()} />;
-  return account ? children : <Navigate to="/app/account" replace />;
+  return account ? (
+    children
+  ) : (
+    <Navigate
+      to="/app/account"
+      replace
+      state={{
+        returnTo: `${destination.pathname}${destination.search}${destination.hash}`,
+      }}
+    />
+  );
 }
 
 export function App() {

@@ -310,6 +310,9 @@ export class ApiError extends Error {
     this.name = "ApiError";
   }
 }
+
+export const sessionEvents = new EventTarget();
+
 async function request<T>(
   path: string,
   method = "GET",
@@ -330,11 +333,14 @@ async function request<T>(
         message: "The service is temporarily unavailable.",
       },
     }));
-    throw new ApiError(
+    const failure = new ApiError(
       response.status,
       error.error?.code ?? "request_failed",
       error.error?.message ?? "The request could not be completed.",
     );
+    if (failure.status === 401 && failure.code === "authentication_required")
+      sessionEvents.dispatchEvent(new Event("expired"));
+    throw failure;
   }
   return response.status === 204
     ? (undefined as T)

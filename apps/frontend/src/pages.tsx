@@ -1,6 +1,12 @@
-import { useEffect, useState, type FormEvent } from "react";
-import { Link } from "react-router-dom";
-import { api, type Chain, type ProjectRoles } from "./api";
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import {
+  api,
+  type Account,
+  type Chain,
+  type ProjectRoles,
+  type PublicConfig,
+} from "./api";
 import { useSession } from "./app";
 import {
   discoverWallets,
@@ -10,6 +16,7 @@ import {
   discardUnsubmittedTransaction,
   walletTransactions,
   sameAddress,
+  networkIdentity,
   type WalletTransaction,
   type ConnectedWallet,
   type WalletOption,
@@ -58,16 +65,25 @@ export function RoleBadges({ roles }: { roles: ProjectRoles }) {
 export function WalletPicker({
   chain,
   onConnect,
+  onBusyChange,
   disabled = false,
 }: {
   chain: Chain;
   onConnect: (wallet: ConnectedWallet) => void | Promise<void>;
+  onBusyChange?: (busy: boolean) => void;
   disabled?: boolean;
 }) {
   const { config, rememberWallet } = useSession();
   const [options, setOptions] = useState<WalletOption[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>();
+  const mounted = useRef(false);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   useEffect(() => {
     let current = true;
     setOptions(null);
@@ -84,15 +100,20 @@ export function WalletPicker({
   async function connect(option: WalletOption) {
     if (!config) return;
     setBusy(true);
+    onBusyChange?.(true);
     setError(undefined);
     try {
       const wallet = await option.connect();
+      if (!mounted.current) return;
       rememberWallet(wallet);
       await onConnect(wallet);
     } catch (failure) {
-      setError(failure);
+      if (mounted.current) setError(failure);
     } finally {
-      setBusy(false);
+      if (mounted.current) {
+        setBusy(false);
+        onBusyChange?.(false);
+      }
     }
   }
   return (
@@ -130,6 +151,14 @@ export function WalletPicker({
 }
 
 export function AccountPage() {
+  const route = useLocation();
+  const navigate = useNavigate();
+  const requestedPath: unknown = route.state?.returnTo;
+  const returnTo =
+    typeof requestedPath === "string" &&
+    (requestedPath === "/app" || requestedPath.startsWith("/app/projects/"))
+      ? requestedPath
+      : "/app";
   const {
     account,
     config,
@@ -139,37 +168,43 @@ export function AccountPage() {
     refreshAccount,
     rememberWallet,
   } = useSession();
-  const [chain, setChain] = useState<Chain>("ethereum");
+  const [chain, setChain] = useState<Chain>(() =>
+    chains.includes(route.state?.chain) ? route.state.chain : "ethereum",
+  );
   const [name, setName] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState<unknown>();
   const [busy, setBusy] = useState(false);
-  const [transactions, setTransactions] = useState(walletTransactions);
-  const [recoveryHashes, setRecoveryHashes] = useState<Record<string, string>>(
-    {},
-  );
   useEffect(
     () => setName(account?.session.profile.display_name ?? ""),
     [account?.session.profile.display_name],
   );
   async function authenticate(wallet: ConnectedWallet) {
+    setBusy(true);
     setMessage("");
     setError(undefined);
-    const challenge = account
-      ? await api.linkChallenge(
-          wallet.chain,
-          wallet.address,
-          wallet.callbackUrl,
-        )
-      : await api.challenge(wallet.chain, wallet.address, wallet.callbackUrl);
-    const signature = await wallet.signChallenge(challenge);
-    const proof = { ...signature, challenge: challenge.id };
-    setAccount(account ? await api.linkWallet(proof) : await api.login(proof));
-    setMessage(
-      account
-        ? "Wallet ownership verified. The wallet is now linked to this profile."
-        : "Wallet verified. Your workspace is ready.",
-    );
+    try {
+      const challenge = account
+        ? await api.linkChallenge(
+            wallet.chain,
+            wallet.address,
+            wallet.callbackUrl,
+          )
+        : await api.challenge(wallet.chain, wallet.address, wallet.callbackUrl);
+      const signature = await wallet.signChallenge(challenge);
+      const proof = { ...signature, challenge: challenge.id };
+      setAccount(
+        account ? await api.linkWallet(proof) : await api.login(proof),
+      );
+      setMessage(
+        account
+          ? "Wallet ownership verified. The wallet is now linked to this profile."
+          : "Wallet verified. Your workspace is ready.",
+      );
+      if (!account && requestedPath) navigate(returnTo, { replace: true });
+    } finally {
+      setBusy(false);
+    }
   }
   async function importLocal(file: File) {
     if (!config) return;
@@ -182,28 +217,6 @@ export function AccountPage() {
     } catch (failure) {
       setError(failure);
     } finally {
-      setBusy(false);
-    }
-  }
-  async function recheck(transaction: WalletTransaction) {
-    if (!config) return;
-    setBusy(true);
-    setError(undefined);
-    try {
-      if (transaction.transactionId)
-        await refreshWalletTransaction(transaction, config);
-      else if (transaction.submission === "signed" || !transaction.nonceContext)
-        discardUnsubmittedTransaction(transaction);
-      else
-        await resolveWalletTransaction(
-          transaction,
-          recoveryHashes[transaction.id] ?? "",
-          config,
-        );
-    } catch (failure) {
-      setError(failure);
-    } finally {
-      setTransactions(walletTransactions());
       setBusy(false);
     }
   }
@@ -259,13 +272,21 @@ export function AccountPage() {
           ? "Manage the wallets you use across projects and networks."
           : "Connect a wallet and sign a message to access your projects. No transaction or token approval is needed to sign in."}
       </PageTitle>
+      {!account && requestedPath && (
+        <Notice>
+          Sign in to continue to the page you opened. Your submitted
+          transactions remain in this browser’s recovery history.
+        </Notice>
+      )}
       {message && (
         <Notice tone="success">
           {message}
           {account && (
             <p>
-              <Link className="text-link" to="/app">
-                Go to projects →
+              <Link className="text-link" to={returnTo}>
+                {returnTo === "/app"
+                  ? "Go to projects →"
+                  : "Return to project →"}
               </Link>
             </p>
           )}
@@ -318,6 +339,14 @@ export function AccountPage() {
                   <div>
                     <ChainBadge chain={wallet.chain} />
                     <Address value={wallet.address} />
+                    {config &&
+                      wallet.network !==
+                        config.wallet_networks[wallet.chain] && (
+                        <small className="muted">
+                          Another deployment · link a wallet on this environment
+                          to act here
+                        </small>
+                      )}
                   </div>
                   <span className="role-badge">
                     {wallet.chain === account.session.wallet.chain &&
@@ -350,6 +379,7 @@ export function AccountPage() {
                     type="button"
                     className={`wallet-choice ${chain === value ? "selected" : ""}`}
                     aria-pressed={chain === value}
+                    disabled={busy}
                     onClick={() => setChain(value)}
                   >
                     <ChainBadge chain={value} />
@@ -360,7 +390,12 @@ export function AccountPage() {
                 ))}
               </div>
               {config && (
-                <WalletPicker chain={chain} onConnect={authenticate} />
+                <WalletPicker
+                  chain={chain}
+                  onConnect={authenticate}
+                  onBusyChange={setBusy}
+                  disabled={busy}
+                />
               )}
               {config?.local_simulator &&
                 ["localhost", "127.0.0.1", "[::1]"].includes(
@@ -389,79 +424,8 @@ export function AccountPage() {
                 )}
             </div>
           </Panel>
-          {account && transactions.length > 0 && (
-            <Panel
-              title="Wallet transactions"
-              description="Submitted transactions survive a page reload. Check uncertain results before starting another payment."
-            >
-              {transactions
-                .filter((transaction) =>
-                  account.wallets.some(
-                    (wallet) =>
-                      wallet.chain === transaction.chain &&
-                      sameAddress(
-                        wallet.address,
-                        transaction.actor,
-                        wallet.chain,
-                      ),
-                  ),
-                )
-                .map((transaction) => (
-                  <div className="operation-card" key={transaction.id}>
-                    <div className="operation-title">
-                      <ChainBadge chain={transaction.chain} />
-                      <Status value={transaction.status} />
-                    </div>
-                    {transaction.transactionId ? (
-                      <code>{transaction.transactionId}</code>
-                    ) : (
-                      <p className="review-note">
-                        {transaction.submission === "signed" ||
-                        !transaction.nonceContext
-                          ? "The wallet did not return signed bytes. The application has not broadcast this step."
-                          : "The wallet did not return a transaction hash. It may have submitted the transaction; check the wallet’s activity history."}
-                      </p>
-                    )}
-                    {["submitted", "unknown"].includes(transaction.status) && (
-                      <div className="form-stack" style={{ marginTop: 15 }}>
-                        {!transaction.transactionId &&
-                          transaction.submission === "wallet" &&
-                          !!transaction.nonceContext && (
-                            <Field
-                              label="Transaction hash from wallet history"
-                              hint="The chain transaction must match the original wallet, destination and exact action before it can resolve this request."
-                            >
-                              <input
-                                value={recoveryHashes[transaction.id] ?? ""}
-                                onChange={(event) =>
-                                  setRecoveryHashes((previous) => ({
-                                    ...previous,
-                                    [transaction.id]: event.target.value,
-                                  }))
-                                }
-                              />
-                            </Field>
-                          )}
-                        <div className="operation-actions">
-                          <button
-                            className="button secondary small"
-                            disabled={busy}
-                            onClick={() => void recheck(transaction)}
-                          >
-                            {busy
-                              ? "Checking…"
-                              : !transaction.transactionId &&
-                                  (transaction.submission === "signed" ||
-                                    !transaction.nonceContext)
-                                ? "Dismiss unsubmitted request"
-                                : "Check confirmation"}
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                ))}
-            </Panel>
+          {account && config && (
+            <WalletHistory account={account} config={config} />
           )}
         </div>
         <Panel>
@@ -485,6 +449,166 @@ export function AccountPage() {
           </div>
         </Panel>
       </div>
+    </>
+  );
+}
+
+function WalletHistory({
+  account,
+  config,
+}: {
+  account: Account;
+  config: PublicConfig;
+}) {
+  const [checking, setChecking] = useState<string | null>(null);
+  const [transactions, setTransactions] = useState(walletTransactions);
+  const [recoveryHashes, setRecoveryHashes] = useState<Record<string, string>>(
+    {},
+  );
+  const [error, setError] = useState<unknown>();
+  const busy = checking !== null;
+  useEffect(() => {
+    const refresh = () => setTransactions(walletTransactions());
+    window.addEventListener("storage", refresh);
+    return () => window.removeEventListener("storage", refresh);
+  }, []);
+  async function recheck(transaction: WalletTransaction) {
+    setChecking(transaction.id);
+    setError(undefined);
+    try {
+      if (transaction.transactionId)
+        await refreshWalletTransaction(transaction, config);
+      else if (transaction.submission === "signed" || !transaction.nonceContext)
+        discardUnsubmittedTransaction(transaction);
+      else
+        await resolveWalletTransaction(
+          transaction,
+          recoveryHashes[transaction.id] ?? "",
+          config,
+        );
+    } catch (failure) {
+      setError(failure);
+    } finally {
+      setTransactions(walletTransactions());
+      setChecking(null);
+    }
+  }
+  const accountTransactions = transactions.filter((transaction) =>
+    account.wallets.some(
+      (wallet) =>
+        wallet.chain === transaction.chain &&
+        sameAddress(wallet.address, transaction.actor, wallet.chain),
+    ),
+  );
+  const unresolved = accountTransactions.filter((transaction) =>
+    ["submitted", "unknown"].includes(transaction.status),
+  ).length;
+  if (accountTransactions.length === 0) return null;
+  return (
+    <>
+      {unresolved > 0 && (
+        <Notice>
+          <strong>
+            {unresolved} wallet{" "}
+            {unresolved === 1 ? "transaction needs" : "transactions need"}{" "}
+            confirmation.
+          </strong>
+          <p>
+            Check the transaction history below before submitting another action
+            from the same wallet.
+          </p>
+          <a href="#wallet-transactions" className="text-link">
+            Review wallet transactions ↓
+          </a>
+        </Notice>
+      )}
+      {error !== undefined && (
+        <Notice tone="error">
+          {error instanceof Error
+            ? error.message
+            : "Unable to check the transaction."}
+        </Notice>
+      )}
+
+      <Panel
+        title="Wallet transactions"
+        description="Submitted transactions survive a page reload. Check uncertain results before starting another payment."
+      >
+        <div id="wallet-transactions" />
+        {[...accountTransactions]
+          .sort(
+            (a, b) =>
+              Number(["submitted", "unknown"].includes(b.status)) -
+              Number(["submitted", "unknown"].includes(a.status)),
+          )
+          .map((transaction) => (
+            <div className="operation-card" key={transaction.id}>
+              <div className="operation-title">
+                <ChainBadge chain={transaction.chain} />
+                <Status value={transaction.status} />
+              </div>
+              <p className="review-note">
+                Wallet <Address value={transaction.actor} />
+              </p>
+              {transaction.transactionId ? (
+                <Address value={transaction.transactionId} />
+              ) : (
+                <p className="review-note">
+                  {transaction.submission === "signed" ||
+                  !transaction.nonceContext
+                    ? "The wallet did not return signed bytes. The application has not broadcast this step."
+                    : "The wallet did not return a transaction hash. It may have submitted the transaction; check the wallet’s activity history."}
+                </p>
+              )}
+              {config &&
+              transaction.network !==
+                networkIdentity(transaction.chain, config) ? (
+                <p className="review-note">
+                  Recorded on another deployment. Check this transaction using
+                  its original network; it cannot be reconciled here.
+                </p>
+              ) : (
+                ["submitted", "unknown"].includes(transaction.status) && (
+                  <div className="form-stack" style={{ marginTop: 15 }}>
+                    {!transaction.transactionId &&
+                      transaction.submission === "wallet" &&
+                      !!transaction.nonceContext && (
+                        <Field
+                          label="Transaction hash from wallet history"
+                          hint="The chain transaction must match the original wallet, destination and exact action before it can resolve this request."
+                        >
+                          <input
+                            value={recoveryHashes[transaction.id] ?? ""}
+                            onChange={(event) =>
+                              setRecoveryHashes((previous) => ({
+                                ...previous,
+                                [transaction.id]: event.target.value,
+                              }))
+                            }
+                          />
+                        </Field>
+                      )}
+                    <div className="operation-actions">
+                      <button
+                        className="button secondary small"
+                        disabled={busy}
+                        onClick={() => void recheck(transaction)}
+                      >
+                        {checking === transaction.id
+                          ? "Checking…"
+                          : !transaction.transactionId &&
+                              (transaction.submission === "signed" ||
+                                !transaction.nonceContext)
+                            ? "Dismiss unsubmitted request"
+                            : "Check confirmation"}
+                      </button>
+                    </div>
+                  </div>
+                )
+              )}
+            </div>
+          ))}
+      </Panel>
     </>
   );
 }
