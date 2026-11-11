@@ -1,12 +1,10 @@
-import { Link } from "react-router-dom";
-import type { Chain, FundingCosts, UnsignedIntent } from "./api";
+import { Link, useLocation } from "react-router-dom";
+import type { Chain, FundingCosts, ProjectDetail, UnsignedIntent } from "./api";
 import {
-  copy,
   amountKinds,
   purposeKinds,
   expiringKinds,
   displayNative,
-  type ActionKind,
   type ActionTarget,
   type ActionFieldsValue,
   type ChangeField,
@@ -31,7 +29,10 @@ export function ActionFields({
   eligibleWallets,
   needsToken,
   tokenError,
+  tokenLoading,
   tokenAccounts,
+  onTokenRetry,
+  amountLimit,
   needsStorage,
   signingChain,
   onClose,
@@ -43,11 +44,15 @@ export function ActionFields({
   eligibleWallets: { address: string }[];
   needsToken: boolean;
   tokenError: string;
+  tokenLoading: boolean;
   tokenAccounts: { address: string; amount: string }[];
+  onTokenRetry: () => void;
+  amountLimit: string | null;
   needsStorage: boolean;
   signingChain: Chain;
   onClose: () => void;
 }) {
+  const location = useLocation();
   const { kind } = target;
   const {
     chain,
@@ -106,7 +111,15 @@ export function ActionFields({
       {eligibleWallets.length === 0 && (
         <Notice>
           Link a wallet with the required role in{" "}
-          <Link className="text-link" to="/app/account" onClick={onClose}>
+          <Link
+            className="text-link"
+            to="/app/account"
+            state={{
+              returnTo: location.pathname + location.search + location.hash,
+              chain: signingChain,
+            }}
+            onClick={onClose}
+          >
             Account & wallets →
           </Link>
         </Notice>
@@ -117,8 +130,8 @@ export function ActionFields({
             kind === "respond_invoice" ? "Intended contribution" : "Amount"
           }
           hint={
-            target.task && ["withdraw", "release", "reclaim"].includes(kind)
-              ? `Confirmed allocation available: ${money(target.task.available)} USDC`
+            amountLimit !== null
+              ? `Confirmed maximum: ${money(amountLimit)} USDC`
               : "USDC · Up to 6 decimal places"
           }
         >
@@ -132,6 +145,17 @@ export function ActionFields({
             />
             <span>USDC</span>
           </div>
+          {amountLimit !== null && BigInt(amountLimit) > 0n && (
+            <button
+              type="button"
+              className="text-link"
+              onClick={() =>
+                change("amount", money(amountLimit).replaceAll(",", ""))
+              }
+            >
+              Use confirmed maximum
+            </button>
+          )}
         </Field>
       )}
       {target.request && (
@@ -256,7 +280,7 @@ export function ActionFields({
       {kind === "apply" && (
         <Field
           label="Maximum route slippage (%)"
-          hint="This bounds route execution. Delivery costs still come from the project, separately from the approved principal."
+          hint="From 0 to 10%, with at most two decimals. Delivery costs come from the project, separately from the approved principal."
         >
           <input
             inputMode="decimal"
@@ -268,10 +292,25 @@ export function ActionFields({
       )}
       {needsToken && (
         <Field label="Your USDC token account">
-          {tokenError ? (
-            <Notice tone="error">{tokenError}</Notice>
-          ) : !tokenAccounts.length ? (
+          {tokenLoading ? (
             <Loading>Reading wallet token accounts…</Loading>
+          ) : tokenError ? (
+            <Notice tone="error">
+              {tokenError}
+              <button
+                type="button"
+                className="button small secondary"
+                onClick={onTokenRetry}
+              >
+                Refresh token accounts
+              </button>
+            </Notice>
+          ) : !tokenAccounts.length ? (
+            <Notice>
+              Your USDC receiving account will be created in the same
+              transaction as this withdrawal. Review its SOL rent before
+              signing.
+            </Notice>
           ) : (
             <select
               value={tokenAccount}
@@ -337,32 +376,182 @@ export function ActionFields({
   );
 }
 export function ActionReview({
-  kind,
+  project,
+  target,
+  values,
   intent,
   financialAmount,
   costs,
   preparedExpires,
 }: {
-  kind: ActionKind;
+  project: ProjectDetail;
+  target: ActionTarget;
+  values: ActionFieldsValue;
   intent: UnsignedIntent;
   financialAmount: string | null;
   costs: FundingCosts | null;
   preparedExpires: number | null;
 }) {
+  const { kind } = target;
+  const domain = project.chains.find((view) => view.chain === values.chain);
+  const executionChain =
+    target.task?.chain ??
+    target.request?.chain ??
+    target.command?.chain ??
+    target.plan?.destination ??
+    (kind === "fund" || kind === "withdraw_free" || kind === "create_task"
+      ? values.chain
+      : null);
+  const receiver =
+    kind === "fund" || kind === "return_funds"
+      ? domain?.vault
+      : kind === "withdraw"
+        ? (intent.chain === "solana"
+            ? intent.token_account_creation?.address
+            : undefined) ||
+          values.tokenAccount ||
+          values.actor
+        : kind === "withdraw_free"
+          ? domain?.owner_recipient
+          : null;
   return (
     <div className="review">
       <h3>Review before signing</h3>
       <dl className="definition-list">
         <div>
-          <dt>Action</dt>
-          <dd>{copy[kind].title}</dd>
+          <dt>Project coordinator</dt>
+          <dd>
+            <Address value={project.coordinator} />
+          </dd>
         </div>
+        {executionChain && executionChain !== intent.chain && (
+          <div>
+            <dt>Execution network</dt>
+            <dd>
+              <ChainBadge chain={executionChain} />
+            </dd>
+          </div>
+        )}
+        {target.task && (
+          <div>
+            <dt>Task</dt>
+            <dd>
+              <Address value={target.task.id} />
+            </dd>
+          </div>
+        )}
+        {target.request && (
+          <div>
+            <dt>Budget request</dt>
+            <dd>
+              <Address value={target.request.id} />
+            </dd>
+          </div>
+        )}
+        {target.invoice && (
+          <div>
+            <dt>Replenishment request</dt>
+            <dd>#{target.invoice.id}</dd>
+          </div>
+        )}
+        {target.plan && (
+          <div>
+            <dt>Funding plan</dt>
+            <dd>
+              <Address value={target.plan.id} />
+            </dd>
+          </div>
+        )}
+        {target.command && (
+          <>
+            <div>
+              <dt>Coordinator command</dt>
+              <dd>
+                <Address value={target.command.id} />
+              </dd>
+            </div>
+            <div>
+              <dt>Original action</dt>
+              <dd>{target.command.action.replaceAll("_", " ")}</dd>
+            </div>
+            {target.command.task && (
+              <div>
+                <dt>Original task</dt>
+                <dd>
+                  <Address value={target.command.task} />
+                </dd>
+              </div>
+            )}
+            {target.command.request && (
+              <div>
+                <dt>Original budget request</dt>
+                <dd>
+                  <Address value={target.command.request} />
+                </dd>
+              </div>
+            )}
+            <div>
+              <dt>Original command amount</dt>
+              <dd>
+                <Money value={target.command.amount} />
+              </dd>
+            </div>
+            <div>
+              <dt>Original command deadline</dt>
+              <dd>
+                {new Date(
+                  Number(target.command.expires) * 1000,
+                ).toLocaleString()}
+              </dd>
+            </div>
+          </>
+        )}
         <div>
           <dt>Signing network</dt>
           <dd>
             <ChainBadge chain={intent.chain} />
           </dd>
         </div>
+        {receiver && (
+          <div>
+            <dt>Funds recipient</dt>
+            <dd>
+              <Address value={receiver} />
+            </dd>
+          </div>
+        )}
+        {kind === "set_authority" && (
+          <>
+            <div>
+              <dt>Current manager</dt>
+              <dd>{project.authority}</dd>
+            </div>
+            <div>
+              <dt>New manager</dt>
+              <dd>{values.manager.trim()}</dd>
+            </div>
+          </>
+        )}
+        {kind === "set_retry_limit" && (
+          <div>
+            <dt>Recovery attempt limit</dt>
+            <dd>
+              {project.retry_limit} → {values.attempts}
+            </dd>
+          </div>
+        )}
+        {kind === "finalize" && target.task && (
+          <div>
+            <dt>Recorded expense on completion</dt>
+            <dd>
+              <Money
+                value={(
+                  BigInt(target.task.issued) - BigInt(target.task.recovered)
+                ).toString()}
+              />
+            </dd>
+          </div>
+        )}
         <div>
           <dt>Your wallet</dt>
           <dd>
@@ -383,6 +572,16 @@ export function ActionReview({
         )}
         {costs && (
           <>
+            <div>
+              <dt>Maximum route slippage</dt>
+              <dd>{values.slippage}%</dd>
+            </div>
+            <div>
+              <dt>Local allocation</dt>
+              <dd>
+                <Money value={costs.local_amount} />
+              </dd>
+            </div>
             <div>
               <dt>Expected delivery cost</dt>
               <dd>
@@ -408,9 +607,30 @@ export function ActionReview({
             </div>
           </>
         )}
+        {intent.chain === "solana" && intent.token_account_creation && (
+          <>
+            <div>
+              <dt>New USDC token account</dt>
+              <dd>
+                <Address value={intent.token_account_creation.address} />
+              </dd>
+            </div>
+            <div>
+              <dt>Maximum receiving-account deposit</dt>
+              <dd>
+                {displayNative(intent.token_account_creation.rent_lamports, 9)}{" "}
+                SOL
+              </dd>
+            </div>
+          </>
+        )}
         {preparedExpires && (
           <div>
-            <dt>Valid until</dt>
+            <dt>
+              {kind === "invalidate"
+                ? "Invalidation valid until"
+                : "Valid until"}
+            </dt>
             <dd>{new Date(preparedExpires * 1000).toLocaleString()}</dd>
           </div>
         )}
@@ -434,10 +654,45 @@ export function ActionReview({
           </dd>
         </div>
       </dl>
+      {purposeKinds.includes(kind) && values.purpose.trim() && (
+        <div>
+          <p className="section-label">
+            {values.existingReference ? "Purpose reference" : "Purpose"}
+          </p>
+          <div className="metadata">{values.purpose.trim()}</div>
+        </div>
+      )}
+      {["finalize", "respond_invoice"].includes(kind) &&
+        values.report.trim() && (
+          <div>
+            <p className="section-label">
+              {kind === "finalize" ? "Completion report" : "Owner response"}
+              {values.existingReference ? " reference" : ""}
+            </p>
+            <div className="metadata">{values.report.trim()}</div>
+          </div>
+        )}
+      {kind === "retry" &&
+        (values.reason.trim() || values.unverified.trim()) && (
+          <div>
+            <p className="section-label">Recovery context</p>
+            {values.reason.trim() && (
+              <p className="metadata">{values.reason.trim()}</p>
+            )}
+            {values.unverified.trim() && (
+              <p className="metadata">Unverified: {values.unverified.trim()}</p>
+            )}
+          </div>
+        )}
+      {kind === "finalize" && (
+        <Notice>
+          Completion is final. Return any unused wallet funds first; completed
+          tasks cannot accept further returns or budget requests.
+        </Notice>
+      )}
       <p className="review-note">
-        {copy[kind].description} The wallet shows native gas fees before
-        signing. Each prerequisite transaction must finalize before the next
-        step.
+        The wallet shows native gas fees before signing. Each prerequisite
+        transaction must finalize before the next step.
       </p>
       {intent.chain === "ethereum" && intent.transactions.length > 1 && (
         <Notice>

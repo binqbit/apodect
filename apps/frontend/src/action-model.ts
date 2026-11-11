@@ -5,6 +5,7 @@ import type {
   InvoiceView,
   LocalAction,
   PlanView,
+  ProjectDetail,
   RequestView,
   TaskView,
 } from "./api";
@@ -44,6 +45,61 @@ export interface ActionTarget {
   plan?: PlanView;
   invoice?: InvoiceView;
   command?: CommandView;
+}
+
+/** Keep an open action tied to the latest indexed version of its selected record. */
+export function currentActionTarget(
+  project: ProjectDetail,
+  target: ActionTarget,
+): ActionTarget {
+  return {
+    ...target,
+    task: target.task
+      ? project.tasks.find(
+          (task) =>
+            task.chain === target.task!.chain && task.id === target.task!.id,
+        )
+      : undefined,
+    request: target.request
+      ? project.requests.find(
+          (request) =>
+            request.chain === target.request!.chain &&
+            request.id === target.request!.id,
+        )
+      : undefined,
+    plan: target.plan
+      ? project.plans.find((plan) => plan.id === target.plan!.id)
+      : undefined,
+    invoice: target.invoice
+      ? project.invoices.find((invoice) => invoice.id === target.invoice!.id)
+      : undefined,
+    command: target.command
+      ? project.commands.find((command) => command.id === target.command!.id)
+      : undefined,
+  };
+}
+
+export function actionAmountLimit(
+  project: ProjectDetail,
+  target: ActionTarget,
+  chain: Chain,
+): string | null {
+  if (target.task && ["withdraw", "release", "reclaim"].includes(target.kind))
+    return target.task.available;
+  if (target.task && target.kind === "return_funds") {
+    const task = target.task;
+    return (
+      BigInt(task.issued) -
+      BigInt(task.recovered) -
+      BigInt(task.available) -
+      BigInt(task.pending_outflow)
+    ).toString();
+  }
+  if (target.kind === "withdraw_free")
+    return (
+      project.chains.find((view) => view.chain === chain)?.available ?? null
+    );
+  return null;
 }
 
 export const copy: Record<ActionKind, { title: string; description: string }> =
@@ -250,9 +306,24 @@ export function nativeAmount(value: string): string {
     BigInt(fractional.padEnd(24, "0"))
   ).toString();
 }
-export function displayNative(value: string): string {
+
+export function slippageBasisPoints(value: string): number {
+  if (!/^\d+(\.\d{1,2})?$/.test(value.trim()))
+    throw new Error(
+      "Slippage must be between 0 and 10%, with at most two decimals.",
+    );
+  const [whole, fraction = ""] = value.trim().split(".");
+  const points = BigInt(whole) * 100n + BigInt(fraction.padEnd(2, "0"));
+  if (points > 1_000n)
+    throw new Error(
+      "Slippage must be between 0 and 10%, with at most two decimals.",
+    );
+  return Number(points);
+}
+export function displayNative(value: string, decimals = 24): string {
   const amount = BigInt(value);
-  return `${amount / 10n ** 24n}.${(amount % 10n ** 24n).toString().padStart(24, "0").replace(/0+$/, "") || "0"}`;
+  const scale = 10n ** BigInt(decimals);
+  return `${amount / scale}.${(amount % scale).toString().padStart(decimals, "0").replace(/0+$/, "") || "0"}`;
 }
 function randomReference(): string {
   return Array.from(crypto.getRandomValues(new Uint8Array(32)), (byte) =>
@@ -334,6 +405,12 @@ export function buildCoordinatorAction(
     case "set_authority":
       return { action: kind, account: manager.trim() };
     case "set_retry_limit":
+      if (
+        !/^\d+$/.test(attempts) ||
+        Number(attempts) < 1 ||
+        Number(attempts) > 20
+      )
+        throw new Error("Choose a recovery limit between 1 and 20 attempts.");
       return { action: kind, attempts: Number(attempts) };
     case "approve":
       return { action: kind, chain, request: target.request!.id };
@@ -375,6 +452,14 @@ export function buildCoordinatorAction(
     case "resume_plan":
       return { action: kind, plan };
     case "retry":
+      if (
+        [reason, unverified].some(
+          (value) => new TextEncoder().encode(value.trim()).length > 512,
+        )
+      )
+        throw new Error(
+          "Shorten each recovery explanation to at most 512 UTF-8 bytes.",
+        );
       return {
         action: kind,
         plan,

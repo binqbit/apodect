@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import {
   api,
   type FundingCosts,
@@ -29,6 +29,9 @@ import {
   nativeAmount,
   buildLocalAction,
   buildCoordinatorAction,
+  currentActionTarget,
+  actionAmountLimit,
+  slippageBasisPoints,
   type ActionTarget,
   type ActionFieldsValue,
   type ChangeField,
@@ -37,7 +40,7 @@ export type { ActionTarget } from "./action-model";
 
 export function ActionDialog({
   project,
-  target,
+  target: selectedTarget,
   onClose,
   onSubmitted,
 }: {
@@ -46,9 +49,21 @@ export function ActionDialog({
   onClose: () => void;
   onSubmitted: () => void;
 }) {
-  const { account, wallets, rememberWallet } = useSession();
+  const { account, config, wallets, rememberWallet } = useSession();
+  const location = useLocation();
+  const returnTo = location.pathname + location.search + location.hash;
+  const target = currentActionTarget(project, selectedTarget);
   const { kind } = target;
   const local = localKinds.includes(kind);
+  const invoiceAmount = target.invoice
+    ? kind === "fund" && target.invoice.intended !== null
+      ? (BigInt(target.invoice.intended) > BigInt(target.invoice.actual_funding)
+          ? BigInt(target.invoice.intended) -
+            BigInt(target.invoice.actual_funding)
+          : 0n
+        ).toString()
+      : target.invoice.amount
+    : null;
   const [values, setValues] = useState<ActionFieldsValue>({
     chain:
       target.chain ??
@@ -57,9 +72,10 @@ export function ActionDialog({
       account?.session.wallet.chain ??
       "ethereum",
     actor: "",
-    amount: target.invoice
-      ? money(target.invoice.amount).replaceAll(",", "")
-      : "",
+    amount:
+      invoiceAmount && BigInt(invoiceAmount) > 0n
+        ? money(invoiceAmount).replaceAll(",", "")
+        : "",
     purpose: "",
     report: "",
     existingReference: false,
@@ -85,20 +101,31 @@ export function ActionDialog({
     tokenAccount,
   } = values;
   const signingChain = local ? chain : "near";
-  const change: ChangeField = (field, value) =>
+  const change: ChangeField = (field, value) => {
     setValues((previous) => ({ ...previous, [field]: value }));
+    setPrepared(null);
+  };
   const [tokenAccounts, setTokenAccounts] = useState<
     { address: string; amount: string }[]
   >([]);
   const [tokenError, setTokenError] = useState("");
-  const [intent, setIntent] = useState<UnsignedIntent | null>(null);
-  const [costs, setCosts] = useState<FundingCosts | null>(null);
+  const [tokenLoading, setTokenLoading] = useState(false);
+  const [tokenRevision, setTokenRevision] = useState(0);
+  const [prepared, setPrepared] = useState<{
+    intent: UnsignedIntent;
+    costs: FundingCosts | null;
+    expires: number | null;
+    key: string;
+    values: ActionFieldsValue;
+    target: ActionTarget;
+    project: ProjectDetail;
+  } | null>(null);
+  const intent = prepared?.intent ?? null;
   const [shortfall, setShortfall] = useState<string | null>(null);
   const [error, setError] = useState<unknown>();
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<WalletProgress[]>([]);
   const [receipts, setReceipts] = useState<WalletTransaction[] | null>(null);
-  const [preparedExpires, setPreparedExpires] = useState<number | null>(null);
   const dialog = useRef<HTMLDivElement>(null);
   const needsToken =
     local &&
@@ -109,7 +136,11 @@ export function ActionDialog({
     signingChain === "near" && kind !== "apply" && !(local && tokenIngress);
   const eligibleWallets =
     account?.wallets.filter((wallet) => {
-      if (wallet.chain !== signingChain) return false;
+      if (
+        wallet.chain !== signingChain ||
+        wallet.network !== config?.wallet_networks[signingChain]
+      )
+        return false;
       const expected = local
         ? (target.task?.agent ??
           (kind === "fund" ? project.roles.local_owners[chain] : null))
@@ -122,11 +153,51 @@ export function ActionDialog({
         return [project.owner, project.authority].includes(wallet.address);
       return !expected || sameAddress(wallet.address, expected, signingChain);
     }) ?? [];
+  const eligibleAddresses = JSON.stringify(
+    eligibleWallets.map((wallet) => wallet.address),
+  );
   useEffect(() => {
-    change("actor", eligibleWallets[0]?.address ?? "");
-    setIntent(null);
-    setCosts(null);
-  }, [signingChain, chain]);
+    setValues((previous) => {
+      const eligible = eligibleWallets.find((wallet) =>
+        sameAddress(wallet.address, previous.actor, signingChain),
+      );
+      const actor = eligible?.address ?? eligibleWallets[0]?.address ?? "";
+      return actor === previous.actor
+        ? previous
+        : { ...previous, actor, tokenAccount: "" };
+    });
+  }, [signingChain, eligibleAddresses]);
+  const amountLimit = actionAmountLimit(project, target, chain);
+  const taskId = target.task?.id ?? target.request?.task;
+  const taskChain = target.task?.chain ?? target.request?.chain;
+  const preparationKey = JSON.stringify({
+    project: project.key,
+    profile: account?.session.profile.id,
+    owner: project.owner,
+    authority: project.authority,
+    retryLimit: project.retry_limit,
+    eligibleAddresses,
+    target,
+    taskCommands: project.commands
+      .filter(
+        (command) => command.chain === taskChain && command.task === taskId,
+      )
+      .map(({ id, action, status }) => ({ id, action, status })),
+    amountLimit,
+    values,
+  });
+  const latestPreparationKey = useRef(preparationKey);
+  latestPreparationKey.current = preparationKey;
+  useEffect(() => {
+    if (!busy && !receipts && prepared && prepared.key !== preparationKey) {
+      setPrepared(null);
+      setError(
+        new Error(
+          "The project state or signing permissions changed. Review a fresh transaction before signing.",
+        ),
+      );
+    }
+  }, [busy, receipts, prepared, preparationKey]);
   useEffect(() => {
     const before = document.activeElement as HTMLElement | null;
     const previousOverflow = document.body.style.overflow;
@@ -144,6 +215,7 @@ export function ActionDialog({
     setTokenAccounts([]);
     change("tokenAccount", "");
     setTokenError("");
+    setTokenLoading(true);
     api
       .rpc<{
         value: {
@@ -160,15 +232,23 @@ export function ActionDialog({
       .then(
         (result) => {
           if (!current) return;
-          const accounts = result.value.map((item) => ({
-            address: item.pubkey,
-            amount: item.account.data.parsed.info.tokenAmount.amount,
-          }));
+          const accounts = result.value
+            .map((item) => ({
+              address: item.pubkey,
+              amount: item.account.data.parsed.info.tokenAmount.amount,
+            }))
+            .sort((left, right) =>
+              BigInt(left.amount) > BigInt(right.amount)
+                ? -1
+                : BigInt(left.amount) < BigInt(right.amount)
+                  ? 1
+                  : 0,
+            );
           setTokenAccounts(accounts);
           change("tokenAccount", accounts[0]?.address ?? "");
-          if (!accounts.length)
+          if (!accounts.length && kind !== "withdraw")
             setTokenError(
-              "This wallet has no USDC token account on this network. Create one in your wallet before continuing.",
+              "This wallet has no USDC token account on this network. Fund this wallet with USDC before continuing.",
             );
         },
         (failure: unknown) => {
@@ -179,11 +259,14 @@ export function ActionDialog({
                 : "Unable to read token accounts.",
             );
         },
-      );
+      )
+      .finally(() => {
+        if (current) setTokenLoading(false);
+      });
     return () => {
       current = false;
     };
-  }, [needsToken, actor, project.key]);
+  }, [needsToken, actor, project.key, tokenRevision]);
 
   async function prepare(event: FormEvent) {
     event.preventDefault();
@@ -191,6 +274,16 @@ export function ActionDialog({
     setError(undefined);
     setShortfall(null);
     try {
+      if (
+        ["task", "request", "plan", "invoice", "command"].some(
+          (field) =>
+            selectedTarget[field as keyof ActionTarget] &&
+            !target[field as keyof ActionTarget],
+        )
+      )
+        throw new Error(
+          "The selected record is no longer available. Close this action and refresh the project.",
+        );
       if (!actor)
         throw new Error(
           "Link the wallet with the required project role before preparing this action.",
@@ -202,6 +295,10 @@ export function ActionDialog({
         BigInt(parsedAmount) === 0n
       )
         throw new Error("The amount must be greater than zero.");
+      if (amountLimit !== null && BigInt(parsedAmount) > BigInt(amountLimit))
+        throw new Error(
+          `The amount exceeds the confirmed limit of ${money(amountLimit)} USDC. Refresh the project if funds have changed.`,
+        );
       const expires = Math.floor(Date.now() / 1000) + Number(minutes) * 60;
       if (
         !Number.isSafeInteger(expires) ||
@@ -218,6 +315,10 @@ export function ActionDialog({
           if (optional) return null;
           throw new Error("Describe the purpose of this request.");
         }
+        if (new TextEncoder().encode(value.trim()).length > 16_000)
+          throw new Error(
+            "Shorten the explanation to at most 16,000 UTF-8 bytes.",
+          );
         return (await api.saveReference(project.key, value.trim())).digest;
       }
       const purposeRef = purposeKinds.includes(kind)
@@ -227,13 +328,9 @@ export function ActionDialog({
         ? await saveReference(report, true)
         : null;
       let prepared: UnsignedIntent;
+      let costs: FundingCosts | null = null;
       if (kind === "apply") {
-        const slippageUnits = BigInt(baseUnits(slippage));
-        const bps = Number(slippageUnits / 10_000n);
-        if (slippageUnits % 10_000n !== 0n || bps > 10_000)
-          throw new Error(
-            "Slippage must be between 0 and 100%, with at most two decimals.",
-          );
+        const bps = slippageBasisPoints(slippage);
         const reply = await api.prepareApply(project.key, {
           actor,
           request: {
@@ -248,9 +345,13 @@ export function ActionDialog({
           return;
         }
         prepared = reply.intent;
-        setCosts(reply.costs);
+        costs = reply.costs;
       } else if (local) {
-        if (needsToken && !tokenAccount)
+        if (needsToken && (tokenLoading || tokenError))
+          throw new Error(
+            "Wait for a successful USDC token account lookup before preparing this action.",
+          );
+        if (needsToken && kind !== "withdraw" && !tokenAccount)
           throw new Error("Choose a USDC token account owned by this wallet.");
         prepared = await api.prepareLocal(project.key, {
           actor,
@@ -265,7 +366,9 @@ export function ActionDialog({
           ...(chain === "near"
             ? { storage_deposit: tokenIngress ? "1" : nativeAmount(storage) }
             : {}),
-          ...(needsToken ? { token_account: tokenAccount } : {}),
+          ...(needsToken && tokenAccount
+            ? { token_account: tokenAccount }
+            : {}),
         });
       } else {
         prepared = await api.prepareCoordinator(project.key, {
@@ -281,8 +384,19 @@ export function ActionDialog({
           storage_deposit: nativeAmount(storage),
         });
       }
-      setPreparedExpires(expiringKinds.includes(kind) ? expires : null);
-      setIntent(prepared);
+      if (latestPreparationKey.current !== preparationKey)
+        throw new Error(
+          "The project state or signing permissions changed while preparing. Review a fresh transaction.",
+        );
+      setPrepared({
+        intent: prepared,
+        costs,
+        expires: expiringKinds.includes(kind) ? expires : null,
+        key: preparationKey,
+        values: { ...values },
+        target,
+        project,
+      });
     } catch (failure) {
       setError(failure);
     } finally {
@@ -290,15 +404,17 @@ export function ActionDialog({
     }
   }
   async function sign(wallet: ConnectedWallet) {
-    if (!intent || busy || receipts) return;
+    if (!prepared || busy || receipts) return;
+    const { intent, expires } = prepared;
     setBusy(true);
     setError(undefined);
     try {
       requireActor(wallet.address, intent.actor, intent.chain);
-      if (
-        preparedExpires !== null &&
-        preparedExpires <= Math.floor(Date.now() / 1000)
-      )
+      if (prepared.key !== latestPreparationKey.current)
+        throw new Error(
+          "The project state changed. Go back and prepare a fresh review.",
+        );
+      if (expires !== null && expires <= Math.floor(Date.now() / 1000))
         throw new Error(
           "This action has expired. Go back and prepare a fresh review.",
         );
@@ -329,6 +445,17 @@ export function ActionDialog({
       item.chain === signingChain &&
       sameAddress(item.address, actor, signingChain),
   );
+  const unresolved =
+    receipts?.some((receipt) =>
+      ["submitted", "unknown"].includes(receipt.status),
+    ) ?? false;
+  const allFinalized =
+    receipts?.every((receipt) => receipt.status === "finalized") ?? false;
+  const nothingSubmitted =
+    receipts?.every(
+      (receipt) =>
+        receipt.status === "failed" && receipt.transactionId === null,
+    ) ?? false;
   function close() {
     if (!busy) onClose();
   }
@@ -423,7 +550,10 @@ export function ActionDialog({
               eligibleWallets={eligibleWallets}
               needsToken={needsToken}
               tokenError={tokenError}
+              tokenLoading={tokenLoading}
               tokenAccounts={tokenAccounts}
+              onTokenRetry={() => setTokenRevision((revision) => revision + 1)}
+              amountLimit={amountLimit}
               needsStorage={needsStorage}
               signingChain={signingChain}
               onClose={close}
@@ -437,7 +567,14 @@ export function ActionDialog({
               >
                 Cancel
               </button>
-              <button className="button" disabled={busy || !actor}>
+              <button
+                className="button"
+                disabled={
+                  busy ||
+                  !actor ||
+                  (needsToken && (tokenLoading || !!tokenError))
+                }
+              >
                 {busy ? "Preparing…" : "Review transaction →"}
               </button>
             </div>
@@ -445,11 +582,13 @@ export function ActionDialog({
         ) : (
           <div className="form-stack">
             <ActionReview
-              kind={kind}
+              project={prepared!.project}
+              target={prepared!.target}
+              values={prepared!.values}
               intent={intent}
               financialAmount={financialAmount}
-              costs={costs}
-              preparedExpires={preparedExpires}
+              costs={prepared!.costs}
+              preparedExpires={prepared!.expires}
             />
             {progress.length > 0 && (
               <ul className="progress-list" aria-live="polite">
@@ -476,24 +615,36 @@ export function ActionDialog({
             )}
             {receipts ? (
               <>
-                <Notice
-                  tone={
-                    receipts.every((item) => item.status === "finalized")
-                      ? "success"
-                      : "info"
-                  }
-                >
-                  {receipts.every((item) => item.status === "finalized")
+                <Notice tone={allFinalized ? "success" : "info"}>
+                  {allFinalized
                     ? "Wallet transactions finalized. The project view updates after the indexer confirms the resulting state. Cross-chain delivery, when needed, continues separately."
-                    : "The wallet flow is incomplete. Check its recorded transactions in Account & wallets before preparing another payment. An unknown result never means the transfer failed."}
+                    : unresolved
+                      ? "The wallet flow is incomplete. Check its recorded transactions in Account & wallets before preparing another payment. An unknown result never means the transfer failed."
+                      : nothingSubmitted
+                        ? "Nothing was submitted. You can review the action again when your wallet is ready."
+                        : "The failed step has a confirmed outcome. Earlier successful steps remain recorded; prepare a fresh action to continue from current chain state."}
                 </Notice>
                 <div className="button-row">
                   <button className="button" onClick={close}>
                     Back to project
                   </button>
-                  {!receipts.every((item) => item.status === "finalized") && (
+                  {!allFinalized && !unresolved && (
+                    <button
+                      className="button secondary"
+                      onClick={() => {
+                        setPrepared(null);
+                        setReceipts(null);
+                        setError(undefined);
+                        setProgress([]);
+                      }}
+                    >
+                      Review again
+                    </button>
+                  )}
+                  {unresolved && (
                     <Link
                       to="/app/account"
+                      state={{ returnTo }}
                       onClick={close}
                       className="button secondary"
                     >
@@ -509,8 +660,7 @@ export function ActionDialog({
                     className="button secondary"
                     disabled={busy}
                     onClick={() => {
-                      setIntent(null);
-                      setCosts(null);
+                      setPrepared(null);
                       setError(undefined);
                       setProgress([]);
                     }}
@@ -541,6 +691,7 @@ export function ActionDialog({
                     <Link
                       className="text-link"
                       to="/app/account"
+                      state={{ returnTo, chain: signingChain }}
                       onClick={close}
                     >
                       Manage connections in Account & wallets →
