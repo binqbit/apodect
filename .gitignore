@@ -7,6 +7,8 @@
 .env
 .env.*
 !.env.example
+!.env.live.example
+/.secrets/
 node_modules/
 /apps/*/dist/
 /apps/target/

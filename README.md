@@ -12,11 +12,17 @@ Read the [Concept](docs/concept.md), [Architecture](docs/architecture.md), and [
 
 The [contracts](docs/contracts.md) support independent Project lifecycles and an explicitly bound coordinated mode. A NEAR coordinator manages the shared approval queue, reservations and authenticated commands; each network enforces its own custody. The [cross-chain environment](docs/cross-chain-development.md) combines real local RPC transactions with separate local simulations of Chain Signatures, Read MPC and 1Click delivery. See [provider boundaries](docs/cross-chain-providers.md) before connecting public infrastructure.
 
-Run `make local-up` for the complete local stack: Ethereum, Solana, NEAR, deployed
-contracts, relayer and simulated providers. `make local-smoke` exercises cross-chain
-funding and agent lifecycles; `make local-down` stops the stack while retaining state.
-See [local development](docs/local-development.md) for setup and
-[workflows](docs/cross-chain-development.md) for task and funding commands.
+Follow the [application guide](docs/application-development.md) to create database
+secrets, then run `docker compose up --build --wait`. It starts React, Rust/Actix Web,
+PostgreSQL, Kafka and one localnet service containing all three chains, deployed
+contracts, the relayer and simulated providers. The live override excludes localnet.
+Application business features, Kafka consumers and contract integration are not
+implemented yet.
+
+For contract development directly on the host, `make local-up` remains available;
+stop Compose first because both launchers use the same RPC ports. See
+[native local development](docs/local-development.md) and
+[workflows](docs/cross-chain-development.md) for checks, funding and agent lifecycles.
 
 Run `make check` for contract, adapter and service checks, or `make fmt` to apply
 the repository formatters. Public MPC and liquidity integration remain separate

@@ -1,0 +1,178 @@
+name: apodect
+
+services:
+  postgres:
+    image: postgres:18.6-alpine@sha256:123b17998ccaf47e53b502e8c6a1e79afd8f579c6f3eec83c563da026f957395
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
+      - database_password
+    volumes:
+      - postgres_data:/var/lib/postgresql
+      - ./infra/init-database.sh:/docker-entrypoint-initdb.d/10-app.sh:ro
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres -h 127.0.0.1"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+
+  kafka:
+    image: apache/kafka:4.4.0@sha256:833b867a9585a141da455dc2b57431c65cbccb27f11c91f694444cca9f777e0f
+    init: true
+    environment:
+      CLUSTER_ID: f-ozFaA-QlmAoV_Uev2BTg
+      KAFKA_NODE_ID: "1"
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      # Each listener advertises an address reachable from its own network.
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT,HOST:PLAINTEXT
+      KAFKA_LISTENERS: INTERNAL://:9092,CONTROLLER://:9093,HOST://:19092
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:9092,HOST://127.0.0.1:9092
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
+      KAFKA_SHARE_COORDINATOR_STATE_TOPIC_REPLICATION_FACTOR: "1"
+      KAFKA_SHARE_COORDINATOR_STATE_TOPIC_MIN_ISR: "1"
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    tmpfs:
+      - /etc/kafka/secrets:ro,mode=0755
+      - /mnt/shared/config:ro,mode=0755
+    ports:
+      - "127.0.0.1:9092:19092"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "/opt/kafka/bin/kafka-topics.sh",
+          "--bootstrap-server",
+          "localhost:9092",
+          "--list",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 6
+      start_period: 30s
+    stop_grace_period: 30s
+
+  backend:
+    build:
+      context: .
+      dockerfile: infra/backend.Dockerfile
+      target: development
+    init: true
+    stop_grace_period: 20s
+    environment:
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGDATABASE: apodect
+      PGUSER: apodect
+      PGPASSWORD_FILE: /run/secrets/database_password
+    secrets:
+      - database_password
+    depends_on:
+      postgres:
+        condition: service_healthy
+    develop:
+      watch:
+        - action: rebuild
+          path: ./apps/backend
+        - action: rebuild
+          path: ./apps/Cargo.toml
+        - action: rebuild
+          path: ./apps/Cargo.lock
+    ports:
+      - "127.0.0.1:3001:3001"
+    healthcheck:
+      # An empty backend intentionally has no HTTP endpoints.
+      test:
+        [
+          "CMD",
+          "curl",
+          "--silent",
+          "--output",
+          "/dev/null",
+          "--max-time",
+          "2",
+          "http://127.0.0.1:3001/",
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 15s
+
+  frontend:
+    build:
+      context: .
+      dockerfile: infra/frontend.Dockerfile
+      target: development
+    init: true
+    environment:
+      BACKEND_URL: http://backend:3001
+    depends_on:
+      backend:
+        condition: service_healthy
+    volumes:
+      - ./apps/frontend/src:/app/apps/frontend/src:ro
+      - ./apps/frontend/index.html:/app/apps/frontend/index.html:ro
+      - ./apps/frontend/vite.config.ts:/app/apps/frontend/vite.config.ts:ro
+    ports:
+      - "127.0.0.1:3000:3000"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 15s
+
+  localnet:
+    build:
+      context: .
+      dockerfile: infra/localnet.Dockerfile
+    platform: linux/amd64
+    init: true
+    # Agave 4 requires io_uring; retain Docker's other syscall restrictions.
+    security_opt:
+      - seccomp=./infra/localnet-seccomp.json
+    environment:
+      APODECT_CONTAINER: "1"
+    volumes:
+      - localnet_data:/app/.localnet
+    ports:
+      - "127.0.0.1:8545:8545"
+      - "127.0.0.1:8899:8899"
+      - "127.0.0.1:8900:8900"
+      - "127.0.0.1:3030:3030"
+    healthcheck:
+      test: ["CMD", "./scripts/localnet.sh", "status", "--require-ready"]
+      interval: 30s
+      timeout: 15s
+      retries: 10
+      start_period: 180s
+    stop_grace_period: 4m
+
+secrets:
+  postgres_password:
+    file: ./.secrets/postgres-admin
+  database_password:
+    file: ./.secrets/postgres-app
+
+volumes:
+  postgres_data:
+  kafka_data:
+  localnet_data:
