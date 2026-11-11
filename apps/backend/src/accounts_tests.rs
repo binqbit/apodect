@@ -260,7 +260,12 @@ async fn wallet_identity_lifecycle() -> Result<()> {
 
     let near_key: near_crypto::SecretKey = "ed25519:3D4YudUahN1nawWogh8pAKSj92sUNMdbZGjn7kERKzYoTy8tnFQuwoGUC51DowKqorvkr2pytJSnwuSbsNVfqygr".parse()?;
     let challenge = accounts.begin_login(Chain::Near, "alice.near").await?;
-    let digest = nep413_digest(&challenge.message, challenge.nonce, &challenge.recipient)?;
+    let digest = nep413_digest(
+        &challenge.message,
+        challenge.nonce,
+        &challenge.recipient,
+        None,
+    )?;
     let near_crypto::Signature::ED25519(signature) = near_key.sign(&digest) else {
         unreachable!()
     };
@@ -272,6 +277,54 @@ async fn wallet_identity_lifecycle() -> Result<()> {
         )
         .await?;
     accounts.session(&near_login.session_token).await?;
+    let callback = format!("{}/wallet/callback", accounts.config.origin);
+    assert!(
+        accounts
+            .begin_login_with_callback(
+                Chain::Near,
+                "alice.near",
+                Some("https://other.example/wallet/callback")
+            )
+            .await
+            .is_err()
+    );
+    let redirect = accounts
+        .begin_login_with_callback(Chain::Near, "alice.near", Some(&callback))
+        .await?;
+    let near_crypto::Signature::ED25519(without_callback) = near_key.sign(&nep413_digest(
+        &redirect.message,
+        redirect.nonce,
+        &redirect.recipient,
+        None,
+    )?) else {
+        unreachable!()
+    };
+    assert!(
+        accounts
+            .complete_login(
+                redirect.id,
+                &STANDARD.encode(without_callback.to_bytes()),
+                Some(&near_key.public_key().to_string()),
+            )
+            .await
+            .is_err()
+    );
+    let near_crypto::Signature::ED25519(signed) = near_key.sign(&nep413_digest(
+        &redirect.message,
+        redirect.nonce,
+        &redirect.recipient,
+        redirect.callback_url.as_deref(),
+    )?) else {
+        unreachable!()
+    };
+    let redirect_login = accounts
+        .complete_login(
+            redirect.id,
+            &STANDARD.encode(signed.to_bytes()),
+            Some(&near_key.public_key().to_string()),
+        )
+        .await?;
+    assert_eq!(redirect_login.profile.id, near_login.profile.id);
     assert_action_authorization(
         &accounts,
         &pool,

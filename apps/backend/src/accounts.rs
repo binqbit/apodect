@@ -52,6 +52,8 @@ pub struct Challenge {
     /// NEP-413 takes these exact bytes; SIWE/SIWS use their hexadecimal encoding.
     pub nonce: [u8; 32],
     pub recipient: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub callback_url: Option<String>,
     pub expires_at: DateTime<Utc>,
 }
 
@@ -92,6 +94,7 @@ struct ChallengeRow {
     nonce: Vec<u8>,
     message: String,
     link_session: Option<Vec<u8>>,
+    callback_url: Option<String>,
 }
 
 #[derive(FromRow)]
@@ -168,7 +171,17 @@ impl Accounts {
     }
 
     pub async fn begin_login(&self, chain: Chain, address: &str) -> Result<Challenge> {
-        self.begin_challenge(chain, address, None).await
+        self.begin_login_with_callback(chain, address, None).await
+    }
+
+    pub async fn begin_login_with_callback(
+        &self,
+        chain: Chain,
+        address: &str,
+        callback_url: Option<&str>,
+    ) -> Result<Challenge> {
+        self.begin_challenge(chain, address, None, callback_url)
+            .await
     }
 
     pub async fn begin_link(
@@ -177,9 +190,25 @@ impl Accounts {
         chain: Chain,
         address: &str,
     ) -> Result<Challenge> {
-        self.session(session_token).await?;
-        self.begin_challenge(chain, address, Some(token_hash(session_token)?))
+        self.begin_link_with_callback(session_token, chain, address, None)
             .await
+    }
+
+    pub async fn begin_link_with_callback(
+        &self,
+        session_token: &str,
+        chain: Chain,
+        address: &str,
+        callback_url: Option<&str>,
+    ) -> Result<Challenge> {
+        self.session(session_token).await?;
+        self.begin_challenge(
+            chain,
+            address,
+            Some(token_hash(session_token)?),
+            callback_url,
+        )
+        .await
     }
 
     async fn begin_challenge(
@@ -187,7 +216,15 @@ impl Accounts {
         chain: Chain,
         address: &str,
         link_session: Option<Vec<u8>>,
+        callback_url: Option<&str>,
     ) -> Result<Challenge> {
+        if let Some(callback) = callback_url {
+            ensure!(chain == Chain::Near, "only NEAR uses a signing callback");
+            ensure!(
+                callback == format!("{}/wallet/callback", self.config.origin),
+                "signing callback must use the application's wallet callback URL"
+            );
+        }
         let address = normalize_address(chain, address)?;
         let network = self.network(chain);
         let now: DateTime<Utc> = sqlx::query_scalar("SELECT clock_timestamp()")
@@ -203,9 +240,9 @@ impl Accounts {
         };
         let message = self.sign_in_message(chain, &address, &nonce, statement, now, id);
 
-        sqlx::query("INSERT INTO login_challenges(id,chain,network,address,nonce,message,expires_at,link_session) VALUES($1,$2,$3,$4,$5,$6,$7,$8)")
+        sqlx::query("INSERT INTO login_challenges(id,chain,network,address,nonce,message,expires_at,link_session,callback_url) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)")
             .bind(id).bind(chain.as_str()).bind(network).bind(&address).bind(nonce.as_slice())
-            .bind(&message).bind(expires_at).bind(link_session).execute(&self.pool).await?;
+            .bind(&message).bind(expires_at).bind(link_session).bind(callback_url).execute(&self.pool).await?;
         Ok(Challenge {
             id,
             chain,
@@ -213,6 +250,7 @@ impl Accounts {
             message,
             nonce,
             recipient: self.domain.clone(),
+            callback_url: callback_url.map(str::to_owned),
             expires_at,
         })
     }
@@ -253,13 +291,25 @@ impl Accounts {
                     .bind(id)
                     .execute(&mut *transaction)
                     .await?;
-                insert_wallet(&mut transaction, &challenge, id).await?;
                 id
             }
         };
-        let expires_at: DateTime<Utc> = sqlx::query_scalar("INSERT INTO sessions(token_hash,chain,network,address,proof,expires_at) VALUES($1,$2,$3,$4,$5,clock_timestamp()+make_interval(hours=>$6)) RETURNING expires_at")
-            .bind(digest).bind(&challenge.chain).bind(&challenge.network).bind(&challenge.address)
-            .bind(serde_json::to_value(proof)?).bind(SESSION_HOURS as i32).fetch_one(&mut *transaction).await?;
+        save_wallet(&mut transaction, &challenge, profile_id, &proof).await?;
+        let expires_at: DateTime<Utc> = sqlx::query_scalar(
+            r#"
+            INSERT INTO sessions(token_hash,chain,network,address,proof,expires_at)
+            VALUES($1,$2,$3,$4,$5,clock_timestamp()+make_interval(hours=>$6))
+            RETURNING expires_at
+            "#,
+        )
+        .bind(digest)
+        .bind(&challenge.chain)
+        .bind(&challenge.network)
+        .bind(&challenge.address)
+        .bind(serde_json::to_value(proof)?)
+        .bind(SESSION_HOURS as i32)
+        .fetch_one(&mut *transaction)
+        .await?;
         let profile = read_profile(&mut transaction, profile_id).await?;
         transaction.commit().await?;
         Ok(Login {
@@ -283,7 +333,8 @@ impl Accounts {
             challenge.link_session.as_ref() == Some(&digest),
             "link challenge belongs to another session"
         );
-        self.verify_challenge(&challenge, signature, public_key)
+        let proof = self
+            .verify_challenge(&challenge, signature, public_key)
             .await?;
 
         let mut transaction = self.pool.begin().await?;
@@ -299,13 +350,13 @@ impl Accounts {
         .bind(&challenge.address)
         .fetch_optional(&mut *transaction)
         .await?;
-        match existing {
-            Some(id) => ensure!(
+        if let Some(id) = existing {
+            ensure!(
                 id == session.profile.id,
                 "wallet already belongs to another profile"
-            ),
-            None => insert_wallet(&mut transaction, &challenge, session.profile.id).await?,
+            );
         }
+        save_wallet(&mut transaction, &challenge, session.profile.id, &proof).await?;
         let profile = read_profile(&mut transaction, session.profile.id).await?;
         transaction.commit().await?;
         Ok(profile)
@@ -313,8 +364,19 @@ impl Accounts {
 
     pub async fn session(&self, session_token: &str) -> Result<Session> {
         let digest = token_hash(session_token)?;
-        let row: SessionRow = sqlx::query_as("SELECT w.profile_id,p.display_name,s.chain,s.network,s.address,s.proof,s.expires_at FROM sessions s JOIN wallets w USING(chain,network,address) JOIN profiles p ON p.id=w.profile_id WHERE s.token_hash=$1 AND s.expires_at>clock_timestamp()")
-            .bind(&digest).fetch_optional(&self.pool).await?.context("session is absent or expired")?;
+        let row: SessionRow = sqlx::query_as(
+            r#"
+            SELECT w.profile_id,p.display_name,s.chain,s.network,s.address,s.proof,s.expires_at
+            FROM sessions s
+            JOIN wallets w USING(chain,network,address)
+            JOIN profiles p ON p.id=w.profile_id
+            WHERE s.token_hash=$1 AND s.expires_at>clock_timestamp()
+            "#,
+        )
+        .bind(&digest)
+        .fetch_optional(&self.pool)
+        .await?
+        .context("session is absent or expired")?;
         let chain = row.chain.parse()?;
         ensure!(
             row.network == self.network(chain),
@@ -360,6 +422,30 @@ impl Accounts {
         let session = self.session(session_token).await?;
         Ok(sqlx::query_as("SELECT chain,network,address FROM wallets WHERE profile_id=$1 ORDER BY chain,network,address")
             .bind(session.profile.id).fetch_all(&self.pool).await?)
+    }
+
+    /// Private management reads need current ownership, even when the profile
+    /// signed in through a different linked wallet. A historic link alone is not
+    /// evidence that a NEAR key still controls its account.
+    pub async fn has_current_near_wallet(
+        &self,
+        session_token: &str,
+        address: &str,
+    ) -> Result<bool> {
+        let session = self.session(session_token).await?;
+        let address = normalize_address(Chain::Near, address)?;
+        let public_key: Option<String> = sqlx::query_scalar(
+            "SELECT near_public_key FROM wallets WHERE profile_id=$1 AND chain='near' AND network=$2 AND address=$3",
+        )
+        .bind(session.profile.id)
+        .bind(self.network(Chain::Near))
+        .bind(&address)
+        .fetch_optional(&self.pool)
+        .await?;
+        match public_key {
+            Some(public_key) => self.near_key_is_current(&address, &public_key).await,
+            None => Ok(false),
+        }
     }
 
     /// Select a verified wallet on this deployment's network for an unsigned action.
@@ -491,7 +577,12 @@ impl Accounts {
                     .as_slice()
                     .try_into()
                     .context("invalid challenge nonce")?;
-                let digest = nep413_digest(&challenge.message, nonce, &self.domain)?;
+                let digest = nep413_digest(
+                    &challenge.message,
+                    nonce,
+                    &self.domain,
+                    challenge.callback_url.as_deref(),
+                )?;
                 ensure!(signature.verify(&digest, &key), "invalid NEP-413 signature");
                 self.verify_near_access(&challenge.address, public_key)
                     .await?;
@@ -503,14 +594,18 @@ impl Accounts {
     }
 
     async fn verify_near_access(&self, account: &str, public_key: &str) -> Result<()> {
-        let block = self.near.finalized_block().await?;
         ensure!(
-            self.near
-                .has_full_access_key(account, public_key, &block)
-                .await?,
+            self.near_key_is_current(account, public_key).await?,
             "NEAR login key lacks full access"
         );
         Ok(())
+    }
+
+    async fn near_key_is_current(&self, account: &str, public_key: &str) -> Result<bool> {
+        let block = self.near.finalized_block().await?;
+        self.near
+            .has_full_access_key(account, public_key, &block)
+            .await
     }
 
     async fn verify_contract_signature(
@@ -577,7 +672,10 @@ impl Accounts {
         Ok(())
     }
 
-    fn network(&self, chain: Chain) -> String {
+    /// Canonical authentication identity used by verified wallet records.
+    /// Worker transaction networks are separate identifiers and must not be
+    /// used to compare profile wallets.
+    pub(crate) fn network(&self, chain: Chain) -> String {
         match chain {
             Chain::Ethereum => format!(
                 "{}:{}",
@@ -645,18 +743,34 @@ async fn lock_wallet(connection: &mut PgConnection, challenge: &ChallengeRow) ->
     Ok(())
 }
 
-async fn insert_wallet(
+async fn save_wallet(
     connection: &mut PgConnection,
     challenge: &ChallengeRow,
     profile: Uuid,
+    proof: &SessionProof,
 ) -> Result<()> {
-    sqlx::query("INSERT INTO wallets(chain,network,address,profile_id) VALUES($1,$2,$3,$4)")
-        .bind(&challenge.chain)
-        .bind(&challenge.network)
-        .bind(&challenge.address)
-        .bind(profile)
-        .execute(connection)
-        .await?;
+    let public_key = match proof {
+        SessionProof::Near { public_key } => Some(public_key.as_str()),
+        _ => None,
+    };
+    // The caller has verified this fresh proof and holds the wallet identity
+    // lock. An existing link may refresh its key but never move to a profile.
+    let saved = sqlx::query(
+        "INSERT INTO wallets(chain,network,address,profile_id,near_public_key) VALUES($1,$2,$3,$4,$5) \
+         ON CONFLICT(chain,network,address) DO UPDATE SET near_public_key=excluded.near_public_key \
+         WHERE wallets.profile_id=excluded.profile_id",
+    )
+    .bind(&challenge.chain)
+    .bind(&challenge.network)
+    .bind(&challenge.address)
+    .bind(profile)
+    .bind(public_key)
+    .execute(connection)
+    .await?;
+    ensure!(
+        saved.rows_affected() == 1,
+        "wallet belongs to another profile"
+    );
     Ok(())
 }
 
@@ -702,7 +816,12 @@ fn token_hash(token: &str) -> Result<Vec<u8>> {
     Ok(Sha256::digest(hex::decode(token)?).to_vec())
 }
 
-fn nep413_digest(message: &str, nonce: [u8; 32], recipient: &str) -> Result<[u8; 32]> {
+fn nep413_digest(
+    message: &str,
+    nonce: [u8; 32],
+    recipient: &str,
+    callback_url: Option<&str>,
+) -> Result<[u8; 32]> {
     #[derive(borsh::BorshSerialize)]
     struct Payload<'a> {
         tag: u32,
@@ -716,7 +835,7 @@ fn nep413_digest(message: &str, nonce: [u8; 32], recipient: &str) -> Result<[u8;
         message,
         nonce,
         recipient,
-        callback_url: None,
+        callback_url,
     };
     Ok(Sha256::digest(borsh::to_vec(&payload)?).into())
 }

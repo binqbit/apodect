@@ -101,6 +101,8 @@ CREATE TABLE wallets (
     network text NOT NULL,
     address text NOT NULL,
     profile_id uuid NOT NULL REFERENCES profiles(id),
+    near_public_key text,
+    CHECK ((chain = 'near') = (near_public_key IS NOT NULL)),
     PRIMARY KEY (chain, network, address)
 );
 CREATE INDEX wallets_profile ON wallets(profile_id);
@@ -122,6 +124,7 @@ CREATE TABLE login_challenges (
     address text NOT NULL,
     nonce bytea NOT NULL CHECK (octet_length(nonce) = 32),
     message text NOT NULL,
+    callback_url text,
     expires_at timestamptz NOT NULL,
     link_session bytea REFERENCES sessions(token_hash) ON DELETE CASCADE
 );
