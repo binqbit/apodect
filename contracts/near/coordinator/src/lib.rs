@@ -975,7 +975,8 @@ impl Coordinator {
             "invalidations": plan.invalidations.iter().map(|value| hex(value)).collect::<Vec<_>>(),
             "closures": plan.closures.iter().map(|value| hex(value)).collect::<Vec<_>>(),
             "attempts": plan.attempts,
-            "requires_attention": plan.attempts >= self.retry_limit,
+            "requires_attention": !matches!(plan.status.as_str(), "Funded" | "Closed")
+                && plan.attempts >= self.retry_limit,
             "error": plan.error,
             "queue_released": plan.queue_released,
         })

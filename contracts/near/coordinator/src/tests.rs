@@ -113,13 +113,19 @@ fn local_full_plan_and_common_fifo() {
     assert_eq!(c.head, 1);
     assert_eq!(c.get_plan(plan.clone())["status"], "Allocating");
     ack(&mut c, 2, 6, 40);
+    context("authority");
+    for _ in 0..3 {
+        c.retry(plan.clone(), None, None);
+    }
+    assert_eq!(c.get_plan(plan.clone())["requires_attention"], true);
     context("relayer");
     c.advance(plan.clone());
     assert_eq!(c.get_plan(plan.clone())["status"], "Settling");
     ack(&mut c, 3, 7, 40);
     context("relayer");
     c.advance(plan.clone());
-    assert_eq!(c.get_plan(plan)["status"], "Funded");
+    assert_eq!(c.get_plan(plan.clone())["status"], "Funded");
+    assert_eq!(c.get_plan(plan)["requires_attention"], false);
 }
 
 #[test]
@@ -394,6 +400,10 @@ fn abort_tombstone_releases_unexecuted_reservation_only_after_ack() {
     context("authority");
     c.approve(hex(&uint(1)), hex(&uint(0)));
     let plan = c.apply(hex(&uint(1)), hex(&uint(0)), 60, vec![], 1000);
+    for _ in 0..3 {
+        c.retry(plan.clone(), None, None);
+    }
+    assert_eq!(c.get_plan(plan.clone())["requires_attention"], true);
     c.abort(plan.clone());
     assert_eq!(c.domain(uint(1)).pending_reserves, 60);
     let r = c.commands.get(&uint(2)).unwrap();
@@ -408,7 +418,8 @@ fn abort_tombstone_releases_unexecuted_reservation_only_after_ack() {
     assert_eq!(c.commands.get(&uint(1)).unwrap().state, 3);
     context("relayer");
     c.advance(plan.clone());
-    assert_eq!(c.get_plan(plan)["status"], "Closed");
+    assert_eq!(c.get_plan(plan.clone())["status"], "Closed");
+    assert_eq!(c.get_plan(plan)["requires_attention"], false);
 }
 
 #[test]
