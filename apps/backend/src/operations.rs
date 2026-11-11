@@ -10,7 +10,7 @@ use uuid::Uuid;
 use crate::{
     chains::{
         ethereum,
-        near::{CoordinatorCommand, CoordinatorPlan},
+        near::{CoordinatorCommand, CoordinatorPlan, PlanRoute},
         protocol::{
             Checkpoint, Evidence, Selection, command_bytes, identity, mpc_signature, parse_command,
         },
@@ -46,10 +46,16 @@ impl Relay {
     pub async fn reconcile_project(&mut self, project: &ProjectConfig) -> Result<()> {
         self.recover(project).await?;
         let view = self.indexer.index_project(project).await?;
-        let snapshots = self.indexer.index_local(project).await?;
         let mut completed = true;
 
-        for snapshot in &snapshots {
+        for chain in Chain::ALL {
+            let snapshot = match self.indexer.index_chain(project, chain).await {
+                Ok(snapshot) => snapshot,
+                Err(error) => {
+                    completed &= report(Err(error), "local snapshot", &chain.to_string());
+                    continue;
+                }
+            };
             for funding in &snapshot.funding {
                 completed &= report(
                     self.observe_funding(project, snapshot.chain, funding).await,
@@ -58,7 +64,7 @@ impl Relay {
                 );
             }
             completed &= report(
-                self.synchronize_local(project, &view, snapshot).await,
+                self.synchronize_local(project, &view, &snapshot).await,
                 "local state",
                 &snapshot.chain.to_string(),
             );
@@ -361,55 +367,19 @@ impl Relay {
         view: &ProjectView,
         plan: &CoordinatorPlan,
     ) -> Result<()> {
-        let destination = binding(project, &plan.destination)?;
+        let mut completed = true;
         for route in &plan.routes {
-            let source = binding(project, &route.quote.source)?;
-            for (chain, refund, expected, known) in [
-                (destination, false, route.quote.output, route.received),
-                (source, true, route.quote.input, route.returned),
-            ] {
-                let Some(balance) = self
-                    .route_balance(project, chain, &route.quote.route, refund, expected)
-                    .await?
-                else {
-                    continue;
-                };
-                let received = balance.received;
-                if balance.collectable(refund) {
-                    // A growing escrow balance must not create another collect
-                    // while the transaction for this received amount is unresolved.
-                    let id = identity(&[
-                        "collect",
-                        &chain.to_string(),
-                        &route.quote.route,
-                        &received.to_string(),
-                    ]);
-                    self.effect(
-                        project,
-                        &id,
-                        chain,
-                        Intent::Collect {
-                            route: route.quote.route.clone(),
-                            refund,
-                        },
-                    )
-                    .await?;
-                }
-                if received > known {
-                    self.observe_state(
-                        project,
-                        chain,
-                        &format!("route:{}", route.quote.route),
-                        &received.to_string(),
-                        Selection {
-                            plan: Some(plan.plan.clone()),
-                            route: Some(route.quote.route.clone()),
-                            refund,
-                            ..Default::default()
-                        },
-                    )
-                    .await?;
-                }
+            for refund in [false, true] {
+                completed &= report(
+                    self.reconcile_route_side(project, plan, route, refund)
+                        .await,
+                    if refund {
+                        "route refund"
+                    } else {
+                        "route delivery"
+                    },
+                    &route.quote.route,
+                );
             }
         }
         // The coordinator gates financial progress at its retry limit, while
@@ -422,11 +392,75 @@ impl Relay {
                 .map(|c| (&c.operation, c.state))
                 .collect();
             let fingerprint = serde_json::to_string(&(plan, relevant))?;
-            self.coordinator(
+            completed &= report(
+                self.coordinator(
+                    project,
+                    &identity(&["advance", &plan.plan, &fingerprint]),
+                    "advance",
+                    json!({"plan":plan.plan}),
+                )
+                .await
+                .map(|_| ()),
+                "plan advancement",
+                &plan.plan,
+            );
+        }
+        ensure!(completed, "Plan reconciliation has unresolved errors");
+        Ok(())
+    }
+
+    async fn reconcile_route_side(
+        &mut self,
+        project: &ProjectConfig,
+        plan: &CoordinatorPlan,
+        route: &PlanRoute,
+        refund: bool,
+    ) -> Result<()> {
+        let (domain, expected, known) = if refund {
+            (&route.quote.source, route.quote.input, route.returned)
+        } else {
+            (&plan.destination, route.quote.output, route.received)
+        };
+        let chain = binding(project, domain)?;
+        let Some(balance) = self
+            .route_balance(project, chain, &route.quote.route, refund, expected)
+            .await?
+        else {
+            return Ok(());
+        };
+        let received = balance.received;
+        if balance.collectable(refund) {
+            // A growing escrow balance must not create another collect while
+            // the transaction for this received amount is unresolved.
+            let id = identity(&[
+                "collect",
+                &chain.to_string(),
+                &route.quote.route,
+                &received.to_string(),
+            ]);
+            self.effect(
                 project,
-                &identity(&["advance", &plan.plan, &fingerprint]),
-                "advance",
-                json!({"plan":plan.plan}),
+                &id,
+                chain,
+                Intent::Collect {
+                    route: route.quote.route.clone(),
+                    refund,
+                },
+            )
+            .await?;
+        }
+        if received > known {
+            self.observe_state(
+                project,
+                chain,
+                &format!("route:{}", route.quote.route),
+                &received.to_string(),
+                Selection {
+                    plan: Some(plan.plan.clone()),
+                    route: Some(route.quote.route.clone()),
+                    refund,
+                    ..Default::default()
+                },
             )
             .await?;
         }

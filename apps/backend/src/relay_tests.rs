@@ -402,3 +402,301 @@ async fn exercise_paused_recovery(
     assert_eq!(state.preparations.load(Ordering::SeqCst), 2);
     Ok::<_, anyhow::Error>(())
 }
+
+/// A foreign RPC outage must not block confirmed settlement on a healthy chain.
+#[actix_web::test]
+#[ignore = "requires isolated PostgreSQL via APODECT_TEST_DATABASE_URL"]
+async fn unavailable_snapshots_do_not_block_other_chain_observations() -> Result<()> {
+    let options: PgConnectOptions = std::env::var("APODECT_TEST_DATABASE_URL")?.parse()?;
+    let admin = PgPoolOptions::new().connect_with(options.clone()).await?;
+    let schema = format!("relay_outage_{}", Uuid::new_v4().simple());
+    sqlx::query(sqlx::AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
+        .execute(&admin)
+        .await?;
+    let pool = PgPoolOptions::new()
+        .max_connections(3)
+        .connect_with(options.options([("search_path", schema.as_str())]))
+        .await?;
+    let store = Store::new(pool.clone());
+    store.migrate().await?;
+
+    let state = Arc::new(Mutex::new(OutageRpc::default()));
+    let server_state = state.clone();
+    let listener = TcpListener::bind("127.0.0.1:0")?;
+    let rpc_url = format!("http://{}", listener.local_addr()?);
+    let server = HttpServer::new(move || {
+        let state = server_state.clone();
+        App::new().route(
+            "/",
+            web::post().to(move |request: web::Json<Value>| {
+                let response = state.lock().unwrap().respond(&request);
+                async move { HttpResponse::Ok().json(response) }
+            }),
+        )
+    })
+    .workers(1)
+    .listen(listener)?
+    .run();
+    let handle = server.handle();
+    let running = actix_web::rt::spawn(server);
+    let result = exercise_outage_reconciliation(store, &state, &rpc_url).await;
+    handle.stop(true).await;
+    running.await??;
+    pool.close().await;
+    sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
+        .execute(&admin)
+        .await?;
+    admin.close().await;
+    result
+}
+
+#[derive(Default)]
+struct OutageRpc {
+    height: u8,
+    observed: bool,
+    advances: usize,
+    checkpoints: BTreeMap<String, String>,
+    transactions: BTreeMap<String, (u64, String)>,
+    unavailable_reads: usize,
+}
+
+impl OutageRpc {
+    fn genesis() -> Value {
+        json!({"chain_id":"test-near","genesis_time":"2026-01-01T00:00:00Z","genesis_height":0,"validators":[]})
+    }
+
+    fn respond(&mut self, request: &Value) -> Value {
+        let params = &request["params"];
+        let block = bs58::encode([self.height; 32]).into_string();
+        let result = match request["method"].as_str().unwrap() {
+            "eth_getBlockByNumber" | "getAccountInfo" => {
+                self.unavailable_reads += 1;
+                return json!({"jsonrpc":"2.0","id":request["id"],"error":{
+                    "code":-32000,"message":"Native RPC temporarily unavailable"
+                }});
+            }
+            "status" => json!({"chain_id":"test-near"}),
+            "genesis_config" => Self::genesis(),
+            "block" => json!({"header":{"height":self.height,"hash":block}}),
+            "query" if params["request_type"] == "view_access_key" => {
+                json!({"nonce":self.transactions.len(),"block_hash":block})
+            }
+            "query" => {
+                let args: Value = serde_json::from_slice(
+                    &STANDARD
+                        .decode(params["args_base64"].as_str().unwrap())
+                        .unwrap(),
+                )
+                .unwrap();
+                let value = match params["method_name"].as_str().unwrap() {
+                    "get_state" => json!({
+                        "owner_id":"owner.near","authority_id":"manager.near","project_id":"01".repeat(32),
+                        "mpc_id":"mpc.near","sign_key":"","read_key":"","sign_path":"project",
+                        "queue_head":0,"queue_length":0,"next_plan":2,"next_command":1,"next_invoice":1,"retry_limit":3
+                    }),
+                    "get_plan" => json!({
+                        "plan":crate::config::number_word(1),"destination":"03".repeat(32),
+                        "principal":1,"local_amount":0,"expires":100,"status":"Aborting",
+                        "reserves":[],"allocation":null,"invalidations":[],"closures":[],
+                        "attempts":0,"requires_attention":false,"error":null,"queue_released":false,
+                        "routes":[{"quote":{"route":"05".repeat(32),"source":"01".repeat(32),
+                            "input":2,"min_input":2,"output":1,"deposit":"06".repeat(32),
+                            "refund":"refund","recipient":"destination","quote_hash":"07".repeat(32),"expires":100},
+                            "delivery":null,"refund":null,"dispatch":null,"received":0,"returned":0,"dispatched":0,
+                            "unsettled_input":0,"confirmed_transport_expense":null}]
+                    }),
+                    "get_domain" => {
+                        let chain = match args["domain"].as_str().unwrap() {
+                            domain if domain == "01".repeat(32) => "ethereum",
+                            domain if domain == "02".repeat(32) => "solana",
+                            _ => "near",
+                        };
+                        let (vault, asset) = match chain {
+                            "ethereum" => (
+                                "0x1111111111111111111111111111111111111111",
+                                "0x2222222222222222222222222222222222222222",
+                            ),
+                            "solana" => (
+                                "11111111111111111111111111111111",
+                                "11111111111111111111111111111111",
+                            ),
+                            _ => ("vault.near", "usdc.near"),
+                        };
+                        let free = if chain == "near" && self.observed {
+                            10
+                        } else {
+                            0
+                        };
+                        json!({"domain":args["domain"],"chain":chain,"vault":vault,"asset":asset,
+                            "program":(chain=="solana").then(||hex::encode(apodect_solana::ID.to_bytes())),
+                            "owner_identity":"04".repeat(32),"owner_recipient":"04".repeat(32),
+                            "sequence":u64::from(free>0),"free":free,"held":0,"pending_reserves":0,"available":free})
+                    }
+                    "get_queue_head" => Value::Null,
+                    "get_project" => {
+                        json!({"owner_id":"owner.near","authority_id":"manager.near","token_id":"usdc.near",
+                        "free":"10","pending_owner_outflow":"0","next_task":0,"next_request":0,"next_invoice":0,"next_operation":0})
+                    }
+                    "get_bridge" => {
+                        json!({"domain":"03".repeat(32),"key":null,"held":"0","accounted_custody":"10","sequence":1,"next_funding":1})
+                    }
+                    "get_checkpoint" => {
+                        json!(self.checkpoints.get(args["observation"].as_str().unwrap()))
+                    }
+                    "get_route" => Value::Null,
+                    method => panic!("Unexpected outage-test contract view {method}"),
+                };
+                let hash = params["block_id"].as_str().unwrap();
+                let height = bs58::decode(hash).into_vec().unwrap()[0];
+                json!({"block_hash":hash,"block_height":height,"result":serde_json::to_vec(&value).unwrap()})
+            }
+            "send_tx" => {
+                let signed: near_primitives::transaction::SignedTransaction =
+                    serde_json::from_value(params["signed_tx_base64"].clone()).unwrap();
+                let near_primitives::action::Action::FunctionCall(call) =
+                    &signed.transaction.actions()[0]
+                else {
+                    panic!("Expected a function call")
+                };
+                let args: Value = serde_json::from_slice(&call.args).unwrap();
+                match call.method_name.as_str() {
+                    "checkpoint" => {
+                        let observation = args["observation"].as_str().unwrap();
+                        let mut payload = [0; 1248];
+                        payload[..32].fill(3);
+                        payload[32..64].copy_from_slice(&word(observation).unwrap());
+                        payload[95] = 1;
+                        payload[191] = 10;
+                        payload[287] = 255;
+                        payload[703] = 255;
+                        self.checkpoints
+                            .insert(observation.into(), hex::encode(payload));
+                    }
+                    "observe_near" => {
+                        assert!(
+                            self.checkpoints
+                                .contains_key(args["observation"].as_str().unwrap())
+                        );
+                        self.observed = true;
+                    }
+                    "advance" => self.advances += 1,
+                    method => panic!("Unexpected outage-test relay method {method}"),
+                }
+                self.transactions.insert(
+                    signed.get_hash().to_string(),
+                    (
+                        signed.transaction.nonce().nonce(),
+                        signed.transaction.receiver_id().to_string(),
+                    ),
+                );
+                self.height += 1;
+                json!({})
+            }
+            "tx" => {
+                let hash = params["tx_hash"].as_str().unwrap();
+                let Some((nonce, receiver)) = self.transactions.get(hash) else {
+                    return json!({"jsonrpc":"2.0","id":request["id"],"error":{
+                        "code":-32000,"message":"Unknown transaction","cause":{"name":"UNKNOWN_TRANSACTION"}
+                    }});
+                };
+                json!({"final_execution_status":"FINAL","status":{"SuccessValue":STANDARD.encode(b"true")},
+                    "transaction":{"signer_id":"relay.near","public_key":"ed25519:11111111111111111111111111111111",
+                        "nonce":nonce,"receiver_id":receiver,"actions":[],"signature":format!("ed25519:{}","1".repeat(64)),"hash":hash},
+                    "transaction_outcome":{"proof":[],"block_hash":block,"id":hash,
+                        "outcome":{"logs":[],"receipt_ids":[],"gas_burnt":0,"tokens_burnt":"0",
+                            "executor_id":receiver,"status":{"SuccessValue":STANDARD.encode(b"true")}}},"receipts_outcome":[]})
+            }
+            method => panic!("Unexpected outage-test RPC method {method}"),
+        };
+        json!({"jsonrpc":"2.0","id":request["id"],"result":result})
+    }
+}
+
+async fn exercise_outage_reconciliation(
+    store: Store,
+    state: &Mutex<OutageRpc>,
+    rpc_url: &str,
+) -> Result<()> {
+    let config: Config = serde_json::from_value(json!({
+        "ethereum":{"rpc_url":rpc_url,"chain_id":31337,"genesis_hash":"00".repeat(32)},
+        "solana":{"rpc_url":rpc_url,"genesis_hash":"local"},
+        "near":{"rpc_url":rpc_url,"genesis":OutageRpc::genesis()},
+        "liquidity":{"url":rpc_url,"local_simulator":true,"api_key_file":null},
+        "projects":[{"coordinator":"coordinator.near","project_id":"01".repeat(32),"ethereum_start_block":0,
+            "domains":{
+                "ethereum":{"domain":"01".repeat(32),"vault":"0x1111111111111111111111111111111111111111","asset":"0x2222222222222222222222222222222222222222","asset_id":"usdc"},
+                "solana":{"domain":"02".repeat(32),"vault":"11111111111111111111111111111111","asset":"11111111111111111111111111111111","asset_id":"usdc"},
+                "near":{"domain":"03".repeat(32),"vault":"vault.near","asset":"usdc.near","asset_id":"usdc"}
+            }}]
+    }))?;
+    let project = config.projects[0].clone();
+    let key = config.project_key(&project);
+    store
+        .register_project(&key, &serde_json::to_value(&project)?)
+        .await?;
+    let rpc = Rpc::new(rpc_url)?;
+    let near = near::NearClient::connect(rpc.clone(), &config.near.genesis).await?;
+    let secret =
+        near_crypto::SecretKey::from_seed(near_crypto::KeyType::ED25519, "relay-outage-test");
+    let key_file = std::env::temp_dir().join(format!("relay-outage-test-{}.json", Uuid::new_v4()));
+    std::fs::write(
+        &key_file,
+        serde_json::to_vec(
+            &json!({"account_id":"relay.near","public_key":secret.public_key(),"private_key":secret}),
+        )?,
+    )?;
+    let signer = near::RelaySigner::from_file(&key_file, "relay.near");
+    std::fs::remove_file(key_file)?;
+    let lock = store.pool.acquire().await?;
+    let mut relay = Relay {
+        indexer: Indexer {
+            config,
+            store,
+            near,
+            ethereum: ethereum::Ethereum::new(rpc, 31337, B256::ZERO),
+        },
+        ethereum_signer: PrivateKeySigner::random(),
+        near_signer: signer?,
+        solana: BTreeMap::new(),
+        lock,
+    };
+    for _ in 0..3 {
+        assert!(
+            relay.reconcile_project(&project).await.is_err(),
+            "The outage must remain visible"
+        );
+    }
+    ensure!(
+        state.lock().unwrap().observed,
+        "A foreign snapshot outage blocked a confirmed NEAR observation"
+    );
+    ensure!(
+        state.lock().unwrap().advances == 1,
+        "A source route outage blocked coordinator settlement cleanup"
+    );
+    let domains: Value = sqlx::query_scalar("SELECT domains FROM project_views WHERE project=$1")
+        .bind(&key)
+        .fetch_one(&relay.indexer.store.pool)
+        .await?;
+    assert_eq!(domains["near"]["free"], 10);
+    assert_eq!(domains["ethereum"]["free"], 0);
+    assert_eq!(domains["solana"]["free"], 0);
+    let snapshots: Vec<String> =
+        sqlx::query_scalar("SELECT chain FROM vault_views WHERE project=$1")
+            .bind(&key)
+            .fetch_all(&relay.indexer.store.pool)
+            .await?;
+    assert_eq!(snapshots, ["near"]);
+    let effects: Vec<String> = sqlx::query_scalar("SELECT state FROM effects WHERE project=$1")
+        .bind(&key)
+        .fetch_all(&relay.indexer.store.pool)
+        .await?;
+    assert_eq!(
+        effects.len(),
+        3,
+        "The checkpoint, observation and cleanup retain their original transactions"
+    );
+    assert!(effects.iter().all(|state| state == "confirmed"));
+    assert_eq!(state.lock().unwrap().unavailable_reads, 9);
+    Ok(())
+}

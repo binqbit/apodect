@@ -283,11 +283,19 @@ impl Indexer {
     pub async fn index_local(&self, project: &ProjectConfig) -> Result<Vec<LocalSnapshot>> {
         let mut snapshots = Vec::new();
         for chain in Chain::ALL {
-            let snapshot = self.local_snapshot(project, chain).await?;
-            Self::save_local(&self.store, &self.config.project_key(project), &snapshot).await?;
-            snapshots.push(snapshot);
+            snapshots.push(self.index_chain(project, chain).await?);
         }
         Ok(snapshots)
+    }
+
+    pub(crate) async fn index_chain(
+        &self,
+        project: &ProjectConfig,
+        chain: Chain,
+    ) -> Result<LocalSnapshot> {
+        let snapshot = self.local_snapshot(project, chain).await?;
+        Self::save_local(&self.store, &self.config.project_key(project), &snapshot).await?;
+        Ok(snapshot)
     }
 
     pub async fn local_snapshot(

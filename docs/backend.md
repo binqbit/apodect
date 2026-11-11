@@ -30,6 +30,10 @@ actual range of slots read. Settlement uses immutable receipts with verified
 transaction inclusion, account/program or emitter binding and payload identity.
 Provider status is diagnostic and never credits funds.
 
+If a native RPC is unavailable, its last confirmed projection stays in place and
+the synchronization round remains incomplete. The worker continues observations
+and settlement on healthy networks; a failed read never creates available funds.
+
 The worker owns a PostgreSQL advisory lock while using its gas keys. Restarting
 it resumes existing transaction identities. An RPC timeout does not mean a
 transfer failed, and does not authorize a replacement payment. Definitive native
