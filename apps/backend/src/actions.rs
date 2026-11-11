@@ -455,6 +455,23 @@ mod tests {
         let restored: near::FunctionCallIntent = serde_json::from_value(wire).unwrap();
         assert_eq!(restored.args, call.args);
 
+        let fund: LocalAction = serde_json::from_value(json!({
+            "action": "fund", "amount": "1", "invoice": AMOUNT.to_string(),
+        }))
+        .unwrap();
+        assert_eq!(
+            serde_json::to_value(fund).unwrap()["invoice"],
+            AMOUNT.to_string()
+        );
+        let response: CoordinatorAction = serde_json::from_value(json!({
+            "action": "respond_invoice", "invoice": AMOUNT.to_string(), "intended": "1",
+        }))
+        .unwrap();
+        assert_eq!(
+            serde_json::to_value(response).unwrap()["invoice"],
+            AMOUNT.to_string()
+        );
+
         let costs = FundingCosts {
             principal: AMOUNT,
             local_amount: AMOUNT,

@@ -1,7 +1,10 @@
 use std::{io, process::ExitCode};
 
 use actix_web::{App, HttpServer, web};
-use apodect_backend::application::Application;
+use apodect_backend::{
+    api::{self, BrowserConfig},
+    application::Application,
+};
 use tokio::signal::unix::{SignalKind, signal};
 use tracing::{error, info};
 
@@ -34,14 +37,24 @@ async fn run() -> io::Result<()> {
 
     let application = web::Data::new(Application::connect().await.map_err(io::Error::other)?);
     let pool = application.indexer.store.pool.clone();
-    let server = HttpServer::new(move || App::new().app_data(application.clone()))
-        .shutdown_signal(shutdown)
-        .shutdown_timeout(10)
-        .bind(("0.0.0.0", 3001));
+    let browser = web::Data::new(BrowserConfig::from_env().map_err(io::Error::other)?);
+    let port: u16 = std::env::var("APP_PORT")
+        .unwrap_or_else(|_| "3001".into())
+        .parse()
+        .map_err(|_| io::Error::other("APP_PORT must be a valid TCP port"))?;
+    let server = HttpServer::new(move || {
+        App::new()
+            .app_data(application.clone())
+            .app_data(browser.clone())
+            .configure(api::configure)
+    })
+    .shutdown_signal(shutdown)
+    .shutdown_timeout(10)
+    .bind(("0.0.0.0", port));
 
     let result = match server {
         Ok(server) => {
-            info!(address = "0.0.0.0:3001", "HTTP server starting");
+            info!(host = "0.0.0.0", port, "HTTP server starting");
             server.run().await
         }
         Err(error) => Err(error),

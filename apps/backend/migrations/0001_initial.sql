@@ -130,3 +130,13 @@ CREATE TABLE login_challenges (
     expires_at timestamptz NOT NULL,
     link_session bytea REFERENCES sessions(token_hash) ON DELETE CASCADE
 );
+
+-- Descriptions and reports are immutable content-addressed records. Possessing
+-- their public digest never grants access to another author's private text.
+CREATE TABLE content_references (
+    project text NOT NULL REFERENCES projects(id),
+    digest text NOT NULL CHECK (digest ~ '^[0-9a-f]{64}$'),
+    author_profile uuid NOT NULL REFERENCES profiles(id),
+    content text NOT NULL CHECK (octet_length(content) BETWEEN 1 AND 16000),
+    PRIMARY KEY (project, digest)
+);

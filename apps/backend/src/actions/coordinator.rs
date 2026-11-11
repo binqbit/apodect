@@ -78,6 +78,7 @@ pub enum CoordinatorAction {
         purpose: String,
     },
     RespondInvoice {
+        #[serde(with = "crate::decimal_u64")]
         invoice: u64,
         #[serde(with = "crate::decimal_u64")]
         intended: u64,

@@ -63,6 +63,7 @@ pub enum LocalAction {
     Fund {
         #[serde(with = "crate::decimal_u64")]
         amount: u64,
+        #[serde(default, with = "crate::optional_decimal_u64")]
         invoice: Option<u64>,
         funding_reference: Option<String>,
     },
