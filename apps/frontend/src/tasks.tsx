@@ -381,7 +381,7 @@ function TaskCard({
     BigInt(task.available) -
     BigInt(task.pending_outflow);
   return (
-    <div key={key}>
+    <div className="task-card" key={key}>
       <div className="operation-card">
         <div className="operation-title task-heading">
           <div>
@@ -405,9 +405,9 @@ function TaskCard({
                 {expanded ? "−" : "+"}
               </span>
             </button>
-            <p style={{ marginTop: 7 }}>
-              <ChainBadge chain={task.chain} />{" "}
-              <span style={{ marginLeft: 12 }}>
+            <p className="task-meta">
+              <ChainBadge chain={task.chain} />
+              <span>
                 {task.mine ? "Your task" : `Agent ${short(task.agent, 6)}`}
               </span>
             </p>

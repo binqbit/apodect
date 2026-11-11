@@ -1281,6 +1281,7 @@ main:focus {
 }
 .funding-queue > li + li {
   border-top: 1px solid var(--line);
+  margin-top: 0;
 }
 .queue-position,
 .queue-task,
@@ -1756,10 +1757,31 @@ main:focus {
   flex-wrap: wrap;
   margin-top: 16px;
 }
+.task-card + .task-card {
+  border-top: 1px solid var(--line);
+}
+.task-card > .operation-card {
+  border-bottom: 0;
+}
+.task-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  margin-top: 7px;
+  font-size: 0.8125rem;
+  color: var(--muted);
+}
+.task-meta > span {
+  overflow-wrap: anywhere;
+}
 .task-detail {
   padding: 23px;
   border-top: 1px solid var(--line);
   background: var(--inset);
+}
+.task-detail > .section-label:first-child {
+  margin-top: 0;
 }
 .expand-button {
   display: inline-flex;
@@ -2233,15 +2255,11 @@ main:focus {
     padding: 18px;
   }
   .task-heading {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
+    flex-direction: column;
     gap: 12px;
   }
   .task-heading > div {
-    display: contents;
-  }
-  .task-heading .expand-button {
-    grid-column: 1 / -1;
+    width: 100%;
   }
   .definition-list > div {
     font-size: 0.75rem;
