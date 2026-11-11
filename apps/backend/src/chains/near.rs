@@ -263,6 +263,19 @@ impl RelayCall {
         Self::new(receiver, "collect", json!({}), 1)
     }
 
+    pub fn register_token_account(token: &str, account: &str, minimum: u128) -> Result<Self> {
+        account
+            .parse::<AccountId>()
+            .context("Invalid token recipient")?;
+        ensure!(minimum > 0, "Token registration minimum must be positive");
+        Self::new(
+            token,
+            "storage_deposit",
+            json!({"account_id": account, "registration_only": true}),
+            minimum,
+        )
+    }
+
     fn new(receiver: &str, method: &str, args: Value, deposit: u128) -> Result<Self> {
         receiver
             .parse::<AccountId>()
@@ -399,10 +412,57 @@ impl NearClient {
                     "args_base64": STANDARD.encode(serde_json::to_vec(args)?),
                 }),
             )
-            .await?;
+            .await
+            .with_context(|| format!("NEAR view {account}.{method}"))?;
         response
             .decode(block)
             .with_context(|| format!("NEAR view {account}.{method}"))
+    }
+
+    pub async fn token_account_registered(
+        &self,
+        token: &str,
+        account: &str,
+        block: &NearBlock,
+    ) -> Result<bool> {
+        account
+            .parse::<AccountId>()
+            .context("Invalid token recipient")?;
+        let balance: Option<Value> = self
+            .view(
+                token,
+                "storage_balance_of",
+                &json!({"account_id": account}),
+                block,
+            )
+            .await?;
+        if let Some(balance) = balance {
+            ensure!(balance.is_object(), "Invalid token storage balance");
+            let total = balance["total"]
+                .as_str()
+                .context("Missing token storage balance")?
+                .parse::<u128>()?;
+            ensure!(total > 0, "Token storage registration is not funded");
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+
+    pub async fn token_registration_call(
+        &self,
+        token: &str,
+        account: &str,
+        block: &NearBlock,
+    ) -> Result<RelayCall> {
+        let bounds: Value = self
+            .view(token, "storage_balance_bounds", &json!({}), block)
+            .await?;
+        let minimum = bounds["min"]
+            .as_str()
+            .context("Missing token registration minimum")?
+            .parse::<u128>()?;
+        RelayCall::register_token_account(token, account, minimum)
     }
 
     /// Account ownership for login requires a currently installed full-access key,

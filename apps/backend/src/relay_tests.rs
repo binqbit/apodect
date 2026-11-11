@@ -22,6 +22,8 @@ struct RpcState {
     preparations: AtomicUsize,
     ethereum_timestamp: AtomicU64,
     ethereum_outcome_reads: AtomicUsize,
+    registration_request: AtomicBool,
+    token_registered: AtomicBool,
     broadcasts: Mutex<Vec<String>>,
 }
 
@@ -54,12 +56,39 @@ fn rpc_result(request: &Value, state: &RpcState, genesis: &Value) -> Value {
                     "closures":[],"attempts":3,"requires_attention":state.paused.load(Ordering::SeqCst),
                     "error":null,"queue_released":false
                 }),
-                "get_command" => json!({
-                    "operation":"01".repeat(32),"domain":"00".repeat(32),
-                    "command":command(state.command_action.load(Ordering::SeqCst)),
-                    "digest":"00".repeat(32),"action":1,"plan":"02".repeat(32),
-                    "signature":null,"signing":false,"signature_error":null,"state":0,"result":"00".repeat(32)
-                }),
+                "get_command" => {
+                    let command = if state.registration_request.load(Ordering::SeqCst) {
+                        let mut bytes = hex::decode(command(action::DISPATCH)).unwrap();
+                        bytes[255] = 1;
+                        bytes[288..320].copy_from_slice(&Sha256::digest(b"deposit.near"));
+                        bytes[352..384].fill(3);
+                        hex::encode(bytes)
+                    } else {
+                        command(state.command_action.load(Ordering::SeqCst))
+                    };
+                    json!({
+                        "operation":"01".repeat(32),"domain":"00".repeat(32),
+                        "command":command,
+                        "digest":"00".repeat(32),"action":1,"plan":"02".repeat(32),
+                        "signature":null,"signing":false,"signature_error":null,"state":0,"result":"00".repeat(32)
+                    })
+                }
+                "storage_balance_of" => {
+                    let args: Value = serde_json::from_slice(
+                        &STANDARD
+                            .decode(request["params"]["args_base64"].as_str().unwrap())
+                            .unwrap(),
+                    )
+                    .unwrap();
+                    assert_eq!(request["params"]["account_id"], "usdc.near");
+                    assert_eq!(args["account_id"], "deposit.near");
+                    if state.token_registered.load(Ordering::SeqCst) {
+                        json!({"total":"1250","available":"0"})
+                    } else {
+                        Value::Null
+                    }
+                }
+                "storage_balance_bounds" => json!({"min":"1250","max":"1250"}),
                 method => panic!("unexpected contract view {method}"),
             };
             json!({"block_hash":block,"block_height":5,"result":serde_json::to_vec(&value).unwrap()})
@@ -72,6 +101,9 @@ fn rpc_result(request: &Value, state: &RpcState, genesis: &Value) -> Value {
                 }});
             }
             let hash = &request["params"]["tx_hash"];
+            if state.registration_request.load(Ordering::SeqCst) {
+                state.token_registered.store(true, Ordering::SeqCst);
+            }
             json!({
                 "final_execution_status":"FINAL","status":{"SuccessValue":STANDARD.encode(b"true")},
                 "transaction":{
@@ -400,6 +432,119 @@ async fn exercise_paused_recovery(
             .is_none()
     );
     assert_eq!(state.preparations.load(Ordering::SeqCst), 2);
+
+    // A new quote receiver cannot receive USDC before its storage registration
+    // is finalized. Unknown outcomes preserve the original registration bytes.
+    state.registration_request.store(true, Ordering::SeqCst);
+    state.finalized.store(false, Ordering::SeqCst);
+    let operation = "01".repeat(32);
+    let before_broadcasts = state.broadcasts.lock().unwrap().len();
+    assert!(
+        !relay
+            .ensure_near_token_account(&project, &operation, "deposit.near")
+            .await?
+    );
+    assert_eq!(state.preparations.load(Ordering::SeqCst), 2);
+    assert_eq!(state.broadcasts.lock().unwrap().len(), before_broadcasts);
+    state.paused.store(false, Ordering::SeqCst);
+    assert!(
+        !relay
+            .ensure_near_token_account(&project, &operation, "deposit.near")
+            .await?
+    );
+    let registration_id = crate::chains::protocol::identity(&[
+        "near_token_registration",
+        &operation,
+        "usdc.near",
+        "deposit.near",
+    ]);
+    let registration = relay
+        .indexer
+        .store
+        .effect(&key, &registration_id)
+        .await?
+        .unwrap();
+    let signed = registration.transaction.unwrap();
+    let transaction: near_primitives::transaction::SignedTransaction =
+        serde_json::from_value(signed["signed_tx_base64"].clone())?;
+    assert_eq!(transaction.transaction.signer_id().as_str(), "relay.near");
+    assert_eq!(transaction.transaction.receiver_id().as_str(), "usdc.near");
+    let [near_primitives::action::Action::FunctionCall(call)] = transaction.transaction.actions()
+    else {
+        anyhow::bail!("registration must contain exactly one function call");
+    };
+    assert_eq!(call.method_name, "storage_deposit");
+    assert_eq!(call.deposit.as_yoctonear(), 1250);
+    assert_eq!(
+        serde_json::from_slice::<Value>(&call.args)?,
+        json!({"account_id":"deposit.near","registration_only":true})
+    );
+    assert!(
+        !relay
+            .ensure_near_token_account(&project, &operation, "deposit.near")
+            .await?
+    );
+    assert_eq!(state.preparations.load(Ordering::SeqCst), 3);
+    {
+        let broadcasts = state.broadcasts.lock().unwrap();
+        assert_eq!(broadcasts.len(), before_broadcasts + 2);
+        assert_eq!(
+            broadcasts[before_broadcasts],
+            broadcasts[before_broadcasts + 1]
+        );
+    }
+
+    state.paused.store(true, Ordering::SeqCst);
+    state.finalized.store(true, Ordering::SeqCst);
+    assert!(
+        relay
+            .ensure_near_token_account(&project, &operation, "deposit.near")
+            .await?
+    );
+    assert!(
+        relay
+            .ensure_near_token_account(&project, &operation, "deposit.near")
+            .await?
+    );
+    assert_eq!(state.preparations.load(Ordering::SeqCst), 3);
+    assert_eq!(
+        state.broadcasts.lock().unwrap().len(),
+        before_broadcasts + 2
+    );
+    let registered = relay
+        .indexer
+        .store
+        .effect(&key, &registration_id)
+        .await?
+        .unwrap();
+    assert_eq!(registered.state, "confirmed");
+    assert_eq!(registered.transaction, Some(signed));
+    assert!(
+        relay
+            .near_call(
+                &project,
+                &Intent::RegisterTokenAccount {
+                    operation: operation.clone(),
+                    token: "other.near".into(),
+                    recipient: "deposit.near".into(),
+                }
+            )
+            .await
+            .is_err()
+    );
+    assert!(
+        relay
+            .near_call(
+                &project,
+                &Intent::RegisterTokenAccount {
+                    operation,
+                    token: "usdc.near".into(),
+                    recipient: "unrelated.near".into(),
+                }
+            )
+            .await
+            .is_err()
+    );
     Ok::<_, anyhow::Error>(())
 }
 

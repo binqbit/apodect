@@ -210,6 +210,20 @@ impl Relay {
             .await?;
         if native == 0 && !attention {
             let recipient = self.command_recipient(project, view, record).await?;
+            if chain == Chain::Near
+                && command.action == action::DISPATCH
+                && !self
+                    .ensure_near_token_account(
+                        project,
+                        &record.operation,
+                        recipient
+                            .as_deref()
+                            .context("NEAR dispatch recipient is missing")?,
+                    )
+                    .await?
+            {
+                return Ok(());
+            }
             let result = self
                 .effect(
                     project,

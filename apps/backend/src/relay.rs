@@ -9,6 +9,7 @@ use anyhow::{Context, Result, bail, ensure};
 use apodect_solana::bridge::action;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 use sqlx::{Postgres, pool::PoolConnection};
 
 use crate::{
@@ -45,6 +46,11 @@ pub enum Intent {
     Coordinator {
         method: String,
         args: Value,
+    },
+    RegisterTokenAccount {
+        operation: String,
+        token: String,
+        recipient: String,
     },
 }
 
@@ -164,6 +170,56 @@ impl Relay {
         Ok(())
     }
 
+    /// NEP-141 transfers require a registered receiver. Registration is a
+    /// separate native-funded effect; dispatch waits for its finalized state.
+    pub(crate) async fn ensure_near_token_account(
+        &mut self,
+        project: &ProjectConfig,
+        operation: &str,
+        recipient: &str,
+    ) -> Result<bool> {
+        let token = project.domains[&Chain::Near].asset.clone();
+        let block = self.indexer.near.finalized_block().await?;
+        if self
+            .indexer
+            .near
+            .token_account_registered(&token, recipient, &block)
+            .await?
+        {
+            return Ok(true);
+        }
+        let id = crate::chains::protocol::identity(&[
+            "near_token_registration",
+            operation,
+            &token,
+            recipient,
+        ]);
+        let registered = self
+            .effect(
+                project,
+                &id,
+                Chain::Near,
+                Intent::RegisterTokenAccount {
+                    operation: operation.to_owned(),
+                    token: token.clone(),
+                    recipient: recipient.to_owned(),
+                },
+            )
+            .await?;
+        if registered.is_none() {
+            return Ok(false);
+        }
+        let block = self.indexer.near.finalized_block().await?;
+        ensure!(
+            self.indexer
+                .near
+                .token_account_registered(&token, recipient, &block)
+                .await?,
+            "Finalized token registration did not register the dispatch recipient"
+        );
+        Ok(true)
+    }
+
     pub async fn effect(
         &mut self,
         project: &ProjectConfig,
@@ -268,12 +324,18 @@ impl Relay {
     }
 
     async fn submission_allowed(&self, project: &ProjectConfig, intent: &Intent) -> Result<bool> {
-        let (command, block) = match intent {
-            Intent::Execute { command, .. } => (parse_command(command)?, None),
-            Intent::Coordinator { method, args } if method == "request_signature" => {
-                let operation = args["operation"]
+        let coordinator_operation = match intent {
+            Intent::Coordinator { method, args } if method == "request_signature" => Some(
+                args["operation"]
                     .as_str()
-                    .context("Signature request has no operation")?;
+                    .context("Signature request has no operation")?,
+            ),
+            Intent::RegisterTokenAccount { operation, .. } => Some(operation.as_str()),
+            _ => None,
+        };
+        let (command, block) = match (intent, coordinator_operation) {
+            (Intent::Execute { command, .. }, _) => (parse_command(command)?, None),
+            (_, Some(operation)) => {
                 let block = self.indexer.near.finalized_block().await?;
                 let record: Option<near::CoordinatorCommand> = self
                     .indexer
@@ -285,7 +347,7 @@ impl Relay {
                         &block,
                     )
                     .await?;
-                let record = record.context("Signature request command no longer exists")?;
+                let record = record.context("Relay coordinator command no longer exists")?;
                 (parse_command(&record.command)?, Some(block))
             }
             _ => return Ok(true),
@@ -518,6 +580,41 @@ impl Relay {
                     STORAGE_DEPOSIT
                 },
             ),
+            Intent::RegisterTokenAccount {
+                operation,
+                token,
+                recipient,
+            } => {
+                ensure!(
+                    token == &project.domains[&Chain::Near].asset,
+                    "Registration token differs from the Project asset"
+                );
+                let block = self.indexer.near.finalized_block().await?;
+                let record: Option<near::CoordinatorCommand> = self
+                    .indexer
+                    .near
+                    .view(
+                        &project.coordinator,
+                        "get_command",
+                        &json!({"operation": operation}),
+                        &block,
+                    )
+                    .await?;
+                let record = record.context("Registration dispatch command is missing")?;
+                let command = parse_command(&record.command)?;
+                ensure!(
+                    record.state == 0
+                        && command.action == action::DISPATCH
+                        && command.operation == word(operation)?
+                        && command.domain == word(&project.domains[&Chain::Near].domain)?
+                        && Sha256::digest(recipient.as_bytes()).as_slice() == command.recipient,
+                    "Token registration is not bound to the pending NEAR dispatch recipient"
+                );
+                self.indexer
+                    .near
+                    .token_registration_call(token, recipient, &block)
+                    .await
+            }
         }
     }
 
