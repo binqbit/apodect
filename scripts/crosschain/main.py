@@ -16,6 +16,8 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from backend import export_runtime
 from chains import Chain, Network, PendingEvidence
 from journal import Journal
 from localnet import (
@@ -59,6 +61,17 @@ from workflows import (
 
 DATA = ROOT / ".localnet" / "coordination"
 PORT = int(os.environ.get("APODECT_PROVIDER_PORT", "18080"))
+
+
+def external_relayer():
+    mode = os.environ.get("APODECT_RELAYER", "python")
+    if mode not in ("python", "external"):
+        raise LocalnetError("APODECT_RELAYER must be python or external")
+    return mode == "external"
+
+
+def service_roles():
+    return ("provider",) if external_relayer() else ("provider", "relayer")
 
 
 def state():
@@ -253,6 +266,8 @@ def owned_process(role):
 
 
 def start_service(role):
+    if role == "relayer" and external_relayer():
+        raise LocalnetError("Rust worker owns relaying in this environment")
     if owned_process(role):
         return
     # A new PID namespace can reuse the previous PID. Readiness belongs to a
@@ -314,6 +329,8 @@ def service_cycle(net, role, work):
 
 
 def serve(role):
+    if role == "relayer" and external_relayer():
+        raise LocalnetError("Rust worker owns relaying in this environment")
     net = network(role)
     stopped = threading.Event()
     for sig in (signal.SIGTERM, signal.SIGINT):
@@ -329,12 +346,18 @@ def serve(role):
         delivery = TransportProvider(net, mock_transport)
         server = provider_server(
             mock_transport,
-            ("127.0.0.1", net.config["provider_port"]),
+            (
+                "0.0.0.0"
+                if os.environ.get("APODECT_CONTAINER") == "1"
+                else "127.0.0.1",
+                net.config["provider_port"],
+            ),
             lambda: {
                 "local_mock": True,
                 "coordinator": net.coordinator,
                 "unresolved_payments": net.journal.unresolved(),
             },
+            container=os.environ.get("APODECT_CONTAINER") == "1",
         )
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
@@ -377,6 +400,10 @@ def up(stop_requested=None):
             time.sleep(0.5)
     else:
         raise ValueError("local provider HTTP service did not start")
+    if external_relayer():
+        exported = export_runtime(net)
+        print(json.dumps({"ready": True, "relayer": "external", **exported}, indent=2))
+        return
     for name in net.chains:
         check_startup_cancelled(stop_requested)
         evidence = synchronize(net, name)
@@ -418,7 +445,7 @@ def require_ready(report):
     for name in CHAINS:
         if report["nodes"][name]["state"] != "running":
             raise LocalnetError(f"{name} is not ready")
-    for role in ("provider", "relayer"):
+    for role in service_roles():
         if report["services"][role]["state"] != "running":
             raise LocalnetError(f"{role} is not ready")
     if report["coordinator_read_error"] is not None:
@@ -470,7 +497,7 @@ def serve_environment():
                     for name in CHAINS:
                         if Environment(name).owned_process() is None:
                             raise LocalnetError(f"{name} exited; inspect its node log")
-                    for role in ("provider", "relayer"):
+                    for role in service_roles():
                         if owned_process(role) is None:
                             raise LocalnetError(
                                 f"{role} exited; inspect its service log"
@@ -523,7 +550,7 @@ def status():
     net = network()
     provider_journal = network("provider").journal
     services = {}
-    for role in ("provider", "relayer"):
+    for role in service_roles():
         journal = provider_journal if role == "provider" else net.journal
         health = journal.get("health", role, {})
         pid = owned_process(role)
@@ -542,6 +569,8 @@ def status():
             else "running",
             "heartbeat_fresh": fresh,
         }
+    if external_relayer():
+        services["relayer"] = {"state": "external"}
     coordinator, domains, read_error = None, {}, None
     if nodes["near"]["state"] == "running":
         try:
@@ -658,6 +687,16 @@ def main():
     fault.add_argument("mode")
     fault.add_argument("--release", action="store_true")
     args = parser.parse_args()
+    if external_relayer() and args.action in (
+        "serve-relayer",
+        "smoke",
+        "apply",
+        "fund",
+    ):
+        parser.error(
+            "Rust worker owns application workflows in this environment; "
+            "use the backend commands, or run the native Python harness with APODECT_RELAYER=python"
+        )
     os.umask(0o077)
     if DATA.is_symlink() or DATA.parent.is_symlink():
         parser.error("local environment directories must not be symlinks")

@@ -1,0 +1,93 @@
+"""Export deployment addresses and dedicated gas credentials for Rust services."""
+
+import os
+from pathlib import Path
+
+from localnet import ROOT, LocalnetError, read_json, write_json
+
+
+def export_runtime(network):
+    ethereum_manifest = read_json(network.chains["ethereum"].environment.manifest_file)
+    start_block = ethereum_manifest.get("project_start_block")
+    if type(start_block) is not int or start_block < 0:
+        raise LocalnetError(
+            "Ethereum deployment lacks its creation block; reset and bootstrap "
+            "the local environment before exporting the backend runtime"
+        )
+    directory = Path(
+        os.environ.get("APODECT_BACKEND_RUNTIME", ROOT / ".localnet/backend-runtime")
+    )
+    if directory.is_symlink():
+        raise ValueError("backend runtime directory must not be a symlink")
+    directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    host = "localnet" if os.environ.get("APODECT_CONTAINER") == "1" else "127.0.0.1"
+    accounts = {
+        name: chain.bridge("relay_account") for name, chain in network.chains.items()
+    }
+    for name, account in accounts.items():
+        binding = network.config["chains"][name]
+        if account["address"] == binding["owner"]:
+            raise ValueError("backend relay must not hold the Project owner key")
+
+    ethereum = read_json(Path(accounts["ethereum"]["key_file"]))
+    write_private(directory / "ethereum.key", ethereum["private_key"].encode() + b"\n")
+    for name in ("solana", "near"):
+        write_private(
+            directory / f"{name}.json", Path(accounts[name]["key_file"]).read_bytes()
+        )
+
+    genesis = network.near.rpc("genesis_config", {})
+    configuration = {
+        "ethereum": {
+            "rpc_url": f"http://{host}:8545",
+            "chain_id": int(network.chains["ethereum"].rpc("eth_chainId", []), 16),
+            "genesis_hash": network.chains["ethereum"].rpc(
+                "eth_getBlockByNumber", ["0x0", False]
+            )["hash"],
+        },
+        "solana": {
+            "rpc_url": f"http://{host}:8899",
+            "genesis_hash": network.chains["solana"].rpc("getGenesisHash", []),
+        },
+        "near": {
+            "rpc_url": f"http://{host}:3030",
+            "genesis": {
+                key: genesis[key]
+                for key in ("chain_id", "genesis_time", "genesis_height", "validators")
+            },
+        },
+        "projects": [
+            {
+                "coordinator": network.coordinator,
+                "project_id": network.config["project_id"],
+                "ethereum_start_block": start_block,
+                "domains": {
+                    name: {
+                        key: binding[key]
+                        for key in ("domain", "vault", "asset", "asset_id")
+                    }
+                    for name, binding in network.config["chains"].items()
+                },
+            }
+        ],
+        "liquidity": {
+            "url": f"http://{host}:{network.config['provider_port']}",
+            "local_simulator": True,
+            "api_key_file": None,
+        },
+    }
+    write_json(directory / "deployment.json", configuration)
+    return {
+        "configuration": str(directory / "deployment.json"),
+        "relayer": accounts["near"]["address"],
+    }
+
+
+def write_private(path, contents):
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(descriptor, "wb") as output:
+        output.write(contents)
+        output.flush()
+        os.fsync(output.fileno())
+    temporary.replace(path)

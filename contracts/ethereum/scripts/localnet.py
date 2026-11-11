@@ -491,7 +491,7 @@ class LocalEthereum:
         )["contractAddress"]
         self.transact("owner", registry, "createWorkspace()")
         workspace_id = self.values(registry, "workspaceCount()")[0]
-        self.transact(
+        project_receipt = self.transact(
             "owner",
             registry,
             "createProject(uint256,address)",
@@ -538,6 +538,7 @@ class LocalEthereum:
                 "asset": {"address": token, "decimals": 6},
                 "workspace_id": workspace_id,
                 "project_nonce": 1,
+                "project_start_block": int(project_receipt["blockNumber"], 16),
                 "artifacts": artifacts,
             },
         )

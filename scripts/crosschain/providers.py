@@ -304,8 +304,8 @@ class Transport:
         self.journal.put("quote", quote_id, record)
 
 
-def provider_server(transport, address, health):
-    """Loopback-only mock API; fault endpoints deliberately require local access."""
+def provider_server(transport, address, health, *, container=False):
+    """Local provider API; fault injection is restricted to loopback clients."""
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, _format, *_args):
@@ -344,6 +344,10 @@ def provider_server(transport, address, health):
                 if self.path == "/v0/quote":
                     result = transport.quote(body)
                 elif self.path == "/local/fault":
+                    if self.client_address[0] != "127.0.0.1":
+                        return self.response(
+                            403, {"error": "fault injection requires local access"}
+                        )
                     result = transport.fault(
                         body["quote_id"], body["mode"], body.get("release", False)
                     )
@@ -353,8 +357,10 @@ def provider_server(transport, address, health):
             except (ValueError, KeyError) as error:
                 self.response(400, {"error": str(error)})
 
-    if address[0] != "127.0.0.1":
-        raise ValueError("mock providers must bind only loopback")
+    if address[0] != "127.0.0.1" and not (container and address[0] == "0.0.0.0"):
+        raise ValueError(
+            "mock providers require loopback or explicit container binding"
+        )
     server = ThreadingHTTPServer(address, Handler)
     server.daemon_threads = True
     return server

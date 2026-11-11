@@ -2,6 +2,7 @@
 
 import fcntl
 import hashlib
+import json
 
 from localnet import CHAIN_ID, CHAIN_MARKER, read_json, require, run
 
@@ -67,6 +68,7 @@ class EthereumBridge:
                 "collect",
                 "agent",
                 "read_funding",
+                "relay_account",
             },
             "Unknown Ethereum bridge action",
         )
@@ -74,6 +76,8 @@ class EthereumBridge:
             fcntl.flock(lock, fcntl.LOCK_EX)
             if action == "bootstrap":
                 return self.bootstrap(request)
+            if action == "relay_account":
+                return self.relay_account()
             project = request["project"]
             require(
                 self.local.values(project, "asset()")[0] == int(self.token, 16)
@@ -82,6 +86,27 @@ class EthereumBridge:
                 "Project is not owned by this local environment",
             )
             return getattr(self, action)(request)
+
+    def relay_account(self):
+        """Provision only native test gas for a separate application signer."""
+        path = self.local.directory / "keys" / "relayer.json"
+        if not path.exists():
+            from localnet import write_json
+
+            account = json.loads(run("cast", "wallet", "new", "--json"))[0]
+            write_json(path, account)
+        account = read_json(path)
+        require(
+            account["address"].lower()
+            not in {value["address"].lower() for value in self.accounts.values()},
+            "Application relay must use a separate account",
+        )
+        balance = int(
+            self.local.rpc("eth_getBalance", [account["address"], "latest"]), 16
+        )
+        if balance < 10 * 10**18:
+            self.local.rpc("anvil_setBalance", [account["address"], hex(20 * 10**18)])
+        return {"address": account["address"], "key_file": str(path)}
 
     def bootstrap(self, request):
         # Native bootstrap owns the only Project; coordination binds it in place.

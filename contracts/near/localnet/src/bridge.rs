@@ -69,6 +69,10 @@ impl Localnet {
         if action == "bootstrap" {
             return self.bridge_bootstrap(&input).await;
         }
+        if action == "relay_account" {
+            let relay = self.ensure_account("relayer").await?;
+            return Ok(json!({"address":relay.id(), "key_file":self.key_file("relayer")}));
+        }
         if action == "view" {
             return self
                 .view(

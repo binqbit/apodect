@@ -677,6 +677,25 @@ pub(super) fn run(localnet: &Localnet) -> Result<()> {
     let input: Value = serde_json::from_reader(io::stdin().lock())?;
     let result = match input["action"].as_str().ok_or("action required")? {
         "bootstrap" => localnet.bridge_bootstrap()?,
+        "relay_account" => {
+            let relay = localnet.key("relayer", true)?;
+            let balance = localnet.rpc(
+                "getBalance",
+                json!([
+                    relay.pubkey().to_string(), {"commitment":"finalized"}
+                ]),
+            )?["value"]
+                .as_u64()
+                .ok_or("missing relay gas balance")?;
+            if balance < 10_000_000_000 {
+                let signature = localnet.rpc(
+                    "requestAirdrop",
+                    json!([relay.pubkey().to_string(), 20_000_000_000u64 - balance]),
+                )?;
+                localnet.finalized_proof(signature.as_str().ok_or("missing airdrop signature")?)?;
+            }
+            json!({"address":relay.pubkey().to_string(), "key_file":localnet.dir.join("keys/relayer.json")})
+        }
         "bind" => {
             let m = localnet.manifest()?;
             let owner = localnet.key("owner", false)?;

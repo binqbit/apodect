@@ -70,8 +70,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     bash ca-certificates curl python3 libssl3t64 libudev1 libatomic1 libstdc++6 \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --create-home --uid 1000 localnet \
-    && mkdir -p /app/.localnet \
-    && chown localnet:localnet /app/.localnet
+    && mkdir -p /app/.localnet /app/backend-runtime \
+    && chown localnet:localnet /app/.localnet /app/backend-runtime
 COPY --from=build /usr/local/bin/anvil /usr/local/bin/cast /usr/local/bin/forge /usr/local/bin/near-sandbox /usr/local/bin/
 COPY --from=build /opt/solana-release/bin/solana-test-validator /usr/local/bin/
 COPY --from=build /opt/apodect /opt/apodect
