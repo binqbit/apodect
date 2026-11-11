@@ -195,8 +195,12 @@ class LocalEthereum:
                     "accounts": allocations,
                 },
             )
-        run("forge", "soldeer", "install", "--config-location", "soldeer")
-        run("forge", "build", "script/LocalUSDC.s.sol", "src/WorkspaceRegistry.sol")
+        if os.environ.get("APODECT_CONTAINER") == "1":
+            for name in ARTIFACTS:
+                self.artifact(name)
+        else:
+            run("forge", "soldeer", "install", "--config-location", "soldeer")
+            run("forge", "build", "script/LocalUSDC.s.sol", "src/WorkspaceRegistry.sol")
         self.accounts()
         print(json.dumps({"chain": "ethereum", "prepared": True, "rpc_url": self.url}))
 
@@ -246,7 +250,9 @@ class LocalEthereum:
             [
                 "anvil",
                 "--host",
-                "127.0.0.1",
+                "0.0.0.0"
+                if os.environ.get("APODECT_CONTAINER") == "1"
+                else "127.0.0.1",
                 "--port",
                 str(self.port),
                 "--chain-id",

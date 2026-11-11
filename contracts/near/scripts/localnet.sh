@@ -26,17 +26,24 @@ done
 case "${1:-}" in
     prepare)
         mkdir -p "$APODECT_LOCALNET_DIR"
-        ./scripts/build.sh
-        cargo build --locked -p apodect-near-localnet
-        near_target="${CARGO_TARGET_DIR:-$near_root/target}"
-        near_target="$(cd "$near_target" && pwd)"
-        printf '%s\n' "$near_target/debug/apodect-near-localnet" > "$APODECT_LOCALNET_DIR/client.path"
-        "$near_target/debug/apodect-near-localnet" prepare
+        if [[ "${APODECT_CONTAINER:-0}" == 1 ]]; then
+            near_client=/opt/apodect/bin/near-client
+        else
+            ./scripts/build.sh
+            cargo build --locked -p apodect-near-localnet
+            near_target="${CARGO_TARGET_DIR:-$near_root/target}"
+            near_target="$(cd "$near_target" && pwd)"
+            near_client="$near_target/debug/apodect-near-localnet"
+        fi
+        printf '%s\n' "$near_client" > "$APODECT_LOCALNET_DIR/client.path"
+        "$near_client" prepare
         ;;
     serve)
         near_binary="$(cat "$APODECT_LOCALNET_DIR/sandbox.path")"
+        near_rpc_host=127.0.0.1
+        [[ "${APODECT_CONTAINER:-0}" != 1 ]] || near_rpc_host=0.0.0.0
         exec "$near_binary" --home "$APODECT_LOCALNET_DIR/node" run \
-            --rpc-addr "127.0.0.1:$APODECT_RPC_PORT" \
+            --rpc-addr "$near_rpc_host:$APODECT_RPC_PORT" \
             --network-addr "127.0.0.1:$APODECT_NETWORK_PORT"
         ;;
     bootstrap|check|bridge)

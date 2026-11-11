@@ -27,6 +27,11 @@ class LocalnetError(Exception):
     """An actionable local environment error."""
 
 
+def check_startup_cancelled(stop_requested):
+    if stop_requested is not None and stop_requested.is_set():
+        raise LocalnetError("local environment shutdown requested during startup")
+
+
 def read_json(path):
     try:
         return json.loads(path.read_text())
@@ -177,9 +182,10 @@ class Environment:
         except (OSError, ValueError, urllib.error.URLError):
             return False
 
-    def wait_ready(self, child):
+    def wait_ready(self, child, stop_requested=None):
         deadline = time.monotonic() + 180
         while time.monotonic() < deadline:
+            check_startup_cancelled(stop_requested)
             if child.poll() is not None:
                 raise LocalnetError(
                     f"{self.chain}: node exited; inspect {self.log_file}"
@@ -220,7 +226,8 @@ class Environment:
                 )
         return manifest
 
-    def up(self):
+    def up(self, stop_requested=None):
+        check_startup_cancelled(stop_requested)
         selected_ports = configured_ports(self.chain)
         if self.settings_file.exists() and self.ports() != selected_ports:
             raise LocalnetError(
@@ -236,6 +243,7 @@ class Environment:
         write_json(self.settings_file, {"ports": selected_ports})
         print(f"{self.chain}: preparing contracts and node", flush=True)
         self.adapter_command("prepare")
+        check_startup_cancelled(stop_requested)
         require_free_ports(selected_ports)
         with self.log_file.open("ab") as log:
             self.log_file.chmod(0o600)
@@ -257,9 +265,10 @@ class Environment:
                 )
             write_json(self.process_file, {"pid": child.pid, "identity": identity})
             print(f"{self.chain}: waiting for RPC at {self.url()}", flush=True)
-            self.wait_ready(child)
+            self.wait_ready(child, stop_requested)
             if not self.manifest_file.exists():
                 self.adapter_command("bootstrap")
+            check_startup_cancelled(stop_requested)
             self.check()
         except BaseException:
             # Keep the actual child handle: writing process.json can itself fail.

@@ -23,6 +23,7 @@ from localnet import (
     ROOT,
     Environment,
     LocalnetError,
+    check_startup_cancelled,
     process_identity,
     read_json,
     write_json,
@@ -254,6 +255,9 @@ def owned_process(role):
 def start_service(role):
     if owned_process(role):
         return
+    # A new PID namespace can reuse the previous PID. Readiness belongs to a
+    # completed cycle of this process, never to a retained heartbeat.
+    network(role).journal.put("health", role, {})
     with (DATA / f"{role}.log").open("ab") as output:
         process = subprocess.Popen(
             [sys.executable, str(Path(__file__).resolve()), f"serve-{role}"],
@@ -349,15 +353,18 @@ def serve(role):
         log(f"{role} stopped; pending effects retained")
 
 
-def up():
+def up(stop_requested=None):
     if (DATA / "manifest.json").exists():
         state()
     for name in CHAINS:
-        Environment(name).up()
+        Environment(name).up(stop_requested)
+    check_startup_cancelled(stop_requested)
     bootstrap()
+    check_startup_cancelled(stop_requested)
     start_service("provider")
     net = network()
     for _ in range(60):
+        check_startup_cancelled(stop_requested)
         try:
             health = LiquidityClient(net.config["provider_url"]).health()
             if (
@@ -371,11 +378,13 @@ def up():
     else:
         raise ValueError("local provider HTTP service did not start")
     for name in net.chains:
+        check_startup_cancelled(stop_requested)
         evidence = synchronize(net, name)
         wait_observation(net, name, evidence["snapshot"]["sequence"])
     start_service("relayer")
     deadline = time.monotonic() + 120
     while time.monotonic() < deadline:
+        check_startup_cancelled(stop_requested)
         pid = owned_process("relayer")
         if pid is None:
             raise ValueError("relayer exited during startup; inspect its log")
@@ -400,6 +409,97 @@ def up():
             indent=2,
         )
     )
+
+
+def require_ready(report):
+    """Compose readiness requires initialized nodes and successful service work."""
+    if not report.get("initialized"):
+        raise LocalnetError("local environment has not finished initialization")
+    for name in CHAINS:
+        if report["nodes"][name]["state"] != "running":
+            raise LocalnetError(f"{name} is not ready")
+    for role in ("provider", "relayer"):
+        if report["services"][role]["state"] != "running":
+            raise LocalnetError(f"{role} is not ready")
+    if report["coordinator_read_error"] is not None:
+        raise LocalnetError("coordinator state is unavailable")
+
+
+def serve_environment():
+    """Own the complete local environment for the container's lifetime."""
+    if os.environ.get("APODECT_CONTAINER") != "1":
+        raise LocalnetError("serve requires the explicit APODECT_CONTAINER=1 runtime")
+    # A shared volume may have only one container owner, even across PID namespaces.
+    with (DATA.parent / ".container.lock").open("a") as owner:
+        try:
+            fcntl.flock(owner, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as error:
+            raise LocalnetError(
+                "another container owns this local environment"
+            ) from error
+        stopped = threading.Event()
+        previous_handlers = {}
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            previous_handlers[sig] = signal.signal(
+                sig, lambda _signal, _frame: stopped.set()
+            )
+        started = False
+        try:
+            with (DATA.parent / ".lock").open("a") as lifecycle:
+                try:
+                    fcntl.flock(lifecycle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError as error:
+                    raise LocalnetError(
+                        "another local lifecycle command is active"
+                    ) from error
+                # Only PID records belong to the old container. Keep all financial
+                # journals, signed transactions, identities and ledgers unchanged.
+                for name in CHAINS:
+                    Environment(name).process_file.unlink(missing_ok=True)
+                for role in ("provider", "relayer"):
+                    (DATA / f"{role}.process.json").unlink(missing_ok=True)
+                started = True
+                up(stopped)
+            while not stopped.wait(2):
+                with (DATA.parent / ".lock").open("a") as lifecycle:
+                    try:
+                        fcntl.flock(lifecycle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    except BlockingIOError:
+                        # Smoke deliberately pauses/restarts services under this lock.
+                        continue
+                    for name in CHAINS:
+                        if Environment(name).owned_process() is None:
+                            raise LocalnetError(f"{name} exited; inspect its node log")
+                    for role in ("provider", "relayer"):
+                        if owned_process(role) is None:
+                            raise LocalnetError(
+                                f"{role} exited; inspect its service log"
+                            )
+        finally:
+            try:
+                if started:
+                    with (DATA.parent / ".lock").open("a") as lifecycle:
+                        deadline = time.monotonic() + 45
+                        while True:
+                            try:
+                                fcntl.flock(lifecycle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                                break
+                            except BlockingIOError as error:
+                                if time.monotonic() >= deadline:
+                                    raise LocalnetError(
+                                        "active lifecycle command prevented graceful shutdown; "
+                                        "data retained for reconciliation"
+                                    ) from error
+                                time.sleep(0.2)
+                        # Finish submissions before terminating their native RPCs.
+                        # A timeout keeps every journal available for reconciliation.
+                        for role in ("relayer", "provider"):
+                            stop_service(role)
+                        for name in CHAINS:
+                            Environment(name).down()
+            finally:
+                for sig, previous in previous_handlers.items():
+                    signal.signal(sig, previous)
 
 
 def status():
@@ -509,8 +609,8 @@ def main():
     sub = parser.add_subparsers(dest="action", required=True)
     for action in (
         "up",
+        "serve",
         "down",
-        "status",
         "logs",
         "serve-provider",
         "serve-relayer",
@@ -518,6 +618,8 @@ def main():
         "smoke",
     ):
         sub.add_parser(action)
+    status_parser = sub.add_parser("status")
+    status_parser.add_argument("--require-ready", action="store_true")
     reset = sub.add_parser("reset")
     reset.add_argument("--yes", action="store_true")
     request = sub.add_parser("request")
@@ -563,6 +665,9 @@ def main():
     if args.action.startswith("serve-"):
         serve(args.action.removeprefix("serve-"))
         return
+    if args.action == "serve":
+        serve_environment()
+        return
     if args.action in ("up", "down", "reset", "smoke"):
         if args.action == "reset" and not args.yes:
             parser.error(
@@ -605,7 +710,10 @@ def main():
                     print(f"{role}:\n" + "".join(collections.deque(output, maxlen=40)))
         return
     if args.action == "status":
-        print(json.dumps(status(), indent=2))
+        report = status()
+        print(json.dumps(report, indent=2))
+        if args.require_ready:
+            require_ready(report)
         return
     net = network()
     if args.action == "request":

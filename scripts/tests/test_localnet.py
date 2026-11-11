@@ -6,6 +6,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -139,6 +140,15 @@ class LocalnetTests(unittest.TestCase):
                 localnet.LocalnetError, "port settings changed"
             ):
                 self.environment.up()
+
+    def test_cancelled_startup_does_not_prepare_or_start_a_node(self):
+        stopped = threading.Event()
+        stopped.set()
+        with patch.object(self.environment, "adapter_command") as adapter:
+            with self.assertRaisesRegex(localnet.LocalnetError, "shutdown requested"):
+                self.environment.up(stopped)
+        adapter.assert_not_called()
+        self.assertFalse(self.environment.process_file.exists())
 
     def rpc_adapter(self):
         self.environment.adapter.parent.mkdir(parents=True)
