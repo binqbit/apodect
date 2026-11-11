@@ -615,15 +615,41 @@ fn validate_quote(request: &QuoteRequest, response: Value, local: bool) -> Resul
     );
     let expected = serde_json::to_value(request)?;
     for (field, value) in expected.as_object().context("Invalid quote request")? {
-        ensure!(
-            response["quoteRequest"][field] == *value,
-            "Provider changed requested {field}"
-        );
+        let actual = &response["quoteRequest"][field];
+        if field == "deadline" {
+            // 1Click canonicalizes ISO timestamps, e.g. Z becomes .000Z.
+            // Compare the exact instant, preserving fractional-second changes.
+            let returned = actual.as_str().context("Quote request has no deadline")?;
+            ensure!(
+                DateTime::parse_from_rfc3339(returned)?
+                    == DateTime::parse_from_rfc3339(&request.deadline)?,
+                "Provider changed requested deadline"
+            );
+        } else {
+            ensure!(actual == value, "Provider changed requested {field}");
+        }
     }
     ensure!(
         local || response.get("localMock").is_none(),
         "Public provider returned simulator data"
     );
+    if !local {
+        let terms = &response["quoteRequest"];
+        ensure!(
+            terms["depositMode"].is_null() || terms["depositMode"] == "SIMPLE",
+            "Vault dispatch supports only memo-free deposits"
+        );
+        for field in [
+            "virtualChainRecipient",
+            "virtualChainRefundRecipient",
+            "customRecipientMsg",
+        ] {
+            ensure!(
+                terms[field].is_null() || terms[field] == "",
+                "Quote added unsupported routing metadata {field}"
+            );
+        }
+    }
     let quoted = &response["quote"];
     let input = amount(&quoted["amountIn"])?;
     let minimum_input = amount(&quoted["minAmountIn"])?;
@@ -1002,6 +1028,40 @@ mod tests {
         config.solana.genesis_hash = SOLANA_MAINNET_GENESIS.into();
         config.near.genesis.chain_id = "testnet".into();
         assert!(validate_mainnet(&config).is_err());
+    }
+
+    #[test]
+    fn production_quote_preserves_terms_after_provider_timestamp_normalization() {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../tests/fixtures/oneclick-production-quote.json"
+        ))
+        .unwrap();
+        let request: QuoteRequest = serde_json::from_value(fixture["request"].clone()).unwrap();
+        let response = &fixture["response"];
+        verify_quote_signature(response, ONE_CLICK_KEY).unwrap();
+        assert_ne!(response["quoteRequest"]["deadline"], request.deadline);
+        assert_eq!(
+            validate_quote(&request, response.clone(), false)
+                .unwrap()
+                .output,
+            100_000_000
+        );
+
+        for deadline in ["2026-11-11T19:07:32Z", "2026-11-11T19:07:33.001Z"] {
+            let mut changed = response.clone();
+            changed["quoteRequest"]["deadline"] = deadline.into();
+            assert!(validate_quote(&request, changed, false).is_err());
+        }
+        for (field, value) in [
+            ("depositMode", "MEMO"),
+            ("virtualChainRecipient", "redirected"),
+            ("virtualChainRefundRecipient", "redirected"),
+            ("customRecipientMsg", "unexpected-callback"),
+        ] {
+            let mut changed = response.clone();
+            changed["quoteRequest"][field] = value.into();
+            assert!(validate_quote(&request, changed, false).is_err());
+        }
     }
 
     #[test]
