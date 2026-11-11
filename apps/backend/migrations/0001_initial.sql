@@ -13,6 +13,8 @@ CREATE TABLE project_views (
     plans jsonb NOT NULL,
     commands jsonb NOT NULL,
     invoices jsonb NOT NULL,
+    requests jsonb NOT NULL,
+    queue_head jsonb NOT NULL,
     observed_at timestamptz NOT NULL DEFAULT now()
 );
 

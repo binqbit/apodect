@@ -74,6 +74,20 @@ pub struct CoordinatorDomain {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct CoordinatorRequest {
+    pub domain: String,
+    pub request: String,
+    pub task: String,
+    pub amount: u64,
+    pub kind: u64,
+    pub purpose: String,
+    pub local_state: u64,
+    pub status: String,
+    pub plan: Option<String>,
+    pub approval_position: Option<u32>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct CoordinatorCommand {
     pub operation: String,
     pub domain: String,

@@ -14,8 +14,8 @@ use crate::{
     chains::{
         ethereum::Ethereum,
         near::{
-            CoordinatorCommand, CoordinatorDomain, CoordinatorPlan, CoordinatorState, NearBlock,
-            NearClient,
+            CoordinatorCommand, CoordinatorDomain, CoordinatorPlan, CoordinatorRequest,
+            CoordinatorState, NearBlock, NearClient,
         },
         solana::{self, Client as SolanaClient},
     },
@@ -39,6 +39,8 @@ pub struct ProjectView {
     pub plans: Vec<CoordinatorPlan>,
     pub commands: Vec<CoordinatorCommand>,
     pub invoices: BTreeMap<u64, Value>,
+    pub requests: BTreeMap<Chain, Vec<CoordinatorRequest>>,
+    pub queue_head: Option<CoordinatorRequest>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -54,6 +56,7 @@ pub struct LocalTask {
     pub pending_outflow: u64,
     pub control_nonce: Option<u64>,
     pub live_request: Option<String>,
+    pub report: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -229,6 +232,40 @@ impl Indexer {
             invoices.insert(id, invoice);
         }
 
+        let mut requests = BTreeMap::new();
+        for (chain, domain) in &project.domains {
+            let mut indexed = Vec::new();
+            if let Some(snapshot) = self
+                .saved_local(&self.config.project_key(project), *chain)
+                .await?
+            {
+                for request in snapshot.requests {
+                    let observed: Option<CoordinatorRequest> = self
+                        .near
+                        .view(
+                            &project.coordinator,
+                            "get_request",
+                            &json!({"domain":domain.domain,"request":request.id}),
+                            &block,
+                        )
+                        .await?;
+                    if let Some(observed) = observed {
+                        ensure!(
+                            word(&observed.request)? == word(&request.id)?
+                                && word(&observed.domain)? == word(&domain.domain)?,
+                            "Coordinator request identity mismatch"
+                        );
+                        indexed.push(observed);
+                    }
+                }
+            }
+            requests.insert(*chain, indexed);
+        }
+        let queue_head = self
+            .near
+            .view(&project.coordinator, "get_queue_head", &json!({}), &block)
+            .await?;
+
         let view = ProjectView {
             block,
             state,
@@ -236,6 +273,8 @@ impl Indexer {
             plans,
             commands,
             invoices,
+            requests,
+            queue_head,
         };
         Self::save_project(&self.store, &self.config.project_key(project), &view).await?;
         Ok(view)
@@ -295,6 +334,7 @@ impl Indexer {
                 pending_outflow: task.pending_outflow.try_into()?,
                 control_nonce: None,
                 live_request: task.live_request.map(number_word),
+                report: task.report.map(hex::encode),
             });
         }
         let mut requests = Vec::new();
@@ -381,6 +421,7 @@ impl Indexer {
                 recovered: task.recovered.try_into()?,
                 pending_outflow: 0,
                 control_nonce: Some(record.control_nonce),
+                report: (task.reportRef != B256::ZERO).then(|| hex::encode(task.reportRef)),
                 live_request: if task.liveRequestId == U256::ZERO {
                     None
                 } else {
@@ -523,6 +564,7 @@ impl Indexer {
                     pending_outflow: 0,
                     control_nonce: Some(task.control_nonce),
                     live_request: task.pending.map(|key| hex::encode(key.as_ref())),
+                    report: (task.report != [0; 32]).then(|| hex::encode(task.report)),
                 });
             }
             cursor = page.next_task;
@@ -594,7 +636,7 @@ impl Indexer {
             .bind(project)
             .fetch_one(&mut *tx)
             .await?;
-        let previous = sqlx::query("SELECT height::text, block_hash, state, domains, plans, commands, invoices FROM project_views WHERE project=$1")
+        let previous = sqlx::query("SELECT height::text, block_hash, state, domains, plans, commands, invoices, requests, queue_head FROM project_views WHERE project=$1")
             .bind(project).fetch_optional(&mut *tx).await?;
         let values = [
             serde_json::to_value(&view.state)?,
@@ -602,6 +644,8 @@ impl Indexer {
             serde_json::to_value(&view.plans)?,
             serde_json::to_value(&view.commands)?,
             serde_json::to_value(&view.invoices)?,
+            serde_json::to_value(&view.requests)?,
+            serde_json::to_value(&view.queue_head)?,
         ];
         let changed = if let Some(previous) = previous {
             check_position(
@@ -610,15 +654,57 @@ impl Indexer {
                 view.block.height,
                 &view.block.hash,
             )?;
-            let changed = ["state", "domains", "plans", "commands", "invoices"]
-                .into_iter()
-                .zip(&values)
-                .map(|(name, value)| Ok(previous.try_get::<Value, _>(name)? != *value))
-                .collect::<Result<Vec<_>>>()?
-                .into_iter()
-                .any(|changed| changed);
+            let changed = [
+                "state",
+                "domains",
+                "plans",
+                "commands",
+                "invoices",
+                "requests",
+                "queue_head",
+            ]
+            .into_iter()
+            .zip(&values)
+            .map(|(name, value)| Ok(previous.try_get::<Value, _>(name)? != *value))
+            .collect::<Result<Vec<_>>>()?
+            .into_iter()
+            .any(|changed| changed);
             if previous.try_get::<String, _>("height")?.parse::<u64>()? == view.block.height {
-                ensure!(!changed, "Finalized NEAR state changed within one block");
+                // Newly indexed local requests may reveal coordinator records at
+                // the same finalized height. Existing records must stay immutable.
+                for (name, value) in [
+                    "state",
+                    "domains",
+                    "plans",
+                    "commands",
+                    "invoices",
+                    "queue_head",
+                ]
+                .into_iter()
+                .zip([
+                    &values[0], &values[1], &values[2], &values[3], &values[4], &values[6],
+                ]) {
+                    ensure!(
+                        previous.try_get::<Value, _>(name)? == *value,
+                        "Finalized NEAR state changed within one block"
+                    );
+                }
+                let old_requests: BTreeMap<Chain, Vec<CoordinatorRequest>> =
+                    serde_json::from_value(previous.try_get("requests")?)?;
+                for (chain, requests) in old_requests {
+                    for old in requests {
+                        let current = view.requests.get(&chain).and_then(|requests| {
+                            requests
+                                .iter()
+                                .find(|request| request.request == old.request)
+                        });
+                        ensure!(
+                            current.map(serde_json::to_value).transpose()?
+                                == Some(serde_json::to_value(old)?),
+                            "Finalized coordinator request changed within one block"
+                        );
+                    }
+                }
             }
             changed
         } else {
@@ -627,8 +713,8 @@ impl Indexer {
         sqlx::query(
             r#"
             INSERT INTO project_views
-                (project, height, block_hash, state, domains, plans, commands, invoices)
-            VALUES ($1, $2::text::numeric, $3, $4, $5, $6, $7, $8)
+                (project, height, block_hash, state, domains, plans, commands, invoices, requests, queue_head)
+            VALUES ($1, $2::text::numeric, $3, $4, $5, $6, $7, $8, $9, $10)
             ON CONFLICT (project) DO UPDATE SET
                 height = excluded.height,
                 block_hash = excluded.block_hash,
@@ -637,6 +723,8 @@ impl Indexer {
                 plans = excluded.plans,
                 commands = excluded.commands,
                 invoices = excluded.invoices,
+                requests = excluded.requests,
+                queue_head = excluded.queue_head,
                 observed_at = now()
         "#,
         )
@@ -648,6 +736,8 @@ impl Indexer {
         .bind(&values[2])
         .bind(&values[3])
         .bind(&values[4])
+        .bind(&values[5])
+        .bind(&values[6])
         .execute(&mut *tx)
         .await?;
         if changed {
@@ -882,6 +972,8 @@ mod tests {
             plans: vec![],
             commands: vec![],
             invoices: BTreeMap::new(),
+            requests: BTreeMap::new(),
+            queue_head: None,
         };
 
         Indexer::save_project(&store, "project", &view).await?;
@@ -1002,6 +1094,39 @@ mod tests {
         assert_eq!(
             count, 4,
             "Native backfill emits one real change; rejected reads emit none"
+        );
+
+        view.block.height = u64::MAX;
+        view.block.hash = "third".into();
+        view.requests.insert(
+            Chain::Near,
+            vec![CoordinatorRequest {
+                domain: number_word(1),
+                request: number_word(2),
+                task: number_word(3),
+                amount: 10,
+                kind: 0,
+                purpose: number_word(4),
+                local_state: 0,
+                status: "Pending".into(),
+                plan: None,
+                approval_position: None,
+            }],
+        );
+        Indexer::save_project(&store, "project", &view).await?;
+        view.requests.get_mut(&Chain::Near).unwrap()[0].amount = 11;
+        assert!(
+            Indexer::save_project(&store, "project", &view)
+                .await
+                .is_err(),
+            "Discovering a request at a pinned block must not permit changing existing records"
+        );
+        view.requests.clear();
+        assert!(
+            Indexer::save_project(&store, "project", &view)
+                .await
+                .is_err(),
+            "A same-block refresh cannot lose previously discovered requests"
         );
 
         pool.close().await;
