@@ -6,6 +6,13 @@
 !apps/**
 !infra/
 !infra/**
+!contracts/
+!contracts/solana/
+!contracts/solana/Cargo.toml
+!contracts/solana/src/
+!contracts/solana/src/**
+!contracts/solana/examples/
+!contracts/solana/examples/**
 **/node_modules
 **/dist
 **/target

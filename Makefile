@@ -10,6 +10,7 @@ check: check-ethereum check-solana check-near check-localnet check-crosschain ch
 check-apps:
 	cargo fmt --manifest-path apps/Cargo.toml --all -- --check
 	cargo clippy --manifest-path apps/Cargo.toml --workspace --locked --all-targets -- -D warnings
+	cargo test --manifest-path apps/Cargo.toml --workspace --locked
 	pnpm check
 	pnpm build
 
