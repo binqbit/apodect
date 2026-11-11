@@ -32,6 +32,7 @@ export interface SignedChallenge {
 export interface PublicConfig {
   origin: string;
   local_simulator: boolean;
+  wallet_networks: Record<Chain, string>;
   ethereum: { chain_id: string; genesis_hash: string };
   solana: { genesis_hash: string };
   near: {
@@ -69,6 +70,7 @@ export interface ChainView {
   chain: Chain;
   vault: string;
   asset: string;
+  owner_recipient: string | null;
   available: Amount;
   free: Amount;
   held: Amount;
@@ -155,6 +157,10 @@ export interface CommandView {
   status: string;
   action: string;
   plan: string;
+  task: string | null;
+  request: string | null;
+  amount: Amount;
+  expires: string;
   signature_error: string | null;
 }
 export interface ProjectDetail extends ProjectSummary {

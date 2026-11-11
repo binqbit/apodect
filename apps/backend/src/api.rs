@@ -214,6 +214,7 @@ async fn public_config(
     Ok(HttpResponse::Ok().json(json!({
         "origin": browser.origin,
         "local_simulator": config.liquidity.local_simulator,
+        "wallet_networks": {"ethereum": app.accounts.network(Chain::Ethereum), "solana": app.accounts.network(Chain::Solana), "near": app.accounts.network(Chain::Near)},
         "ethereum": {"chain_id":config.ethereum.chain_id.to_string(),"genesis_hash":config.ethereum.genesis_hash},
         "solana": {"genesis_hash":config.solana.genesis_hash},
         "near": {"network_id":config.near.genesis.chain_id,"genesis":config.near.genesis},

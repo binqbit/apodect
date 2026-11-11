@@ -18,6 +18,7 @@ use crate::{
         CoordinatorCommand, CoordinatorDomain, CoordinatorPlan, CoordinatorRequest,
         CoordinatorState,
     },
+    chains::protocol::parse_command,
     config::{Chain, ProjectConfig, word},
     indexing::LocalSnapshot,
 };
@@ -156,7 +157,7 @@ fn summary_value(
         "held": held.to_string(),
         "pending_reserves": pending_reserves.to_string(),
         "task_count": task_count,
-        "attention_count": projection.map_or(0,|p|p.plans.iter().filter(|plan|plan.requires_attention).count()),
+        "attention_count": projection.map_or(0,|p|p.plans.iter().filter(|plan|plan_needs_attention(plan)).count()),
     }))
 }
 
@@ -251,6 +252,7 @@ fn detail_value(
             "chain": chain,
             "vault": domain.vault,
             "asset": domain.asset,
+            "owner_recipient": withdrawal_recipient(chain, domain, snapshot.map(|(state, _)| state))?,
             "available": domain.available.to_string(),
             "free": domain.free.to_string(),
             "held": domain.held.to_string(),
@@ -332,7 +334,7 @@ fn detail_value(
             "expires": plan.expires.to_string(),
             "status": plan.status.to_lowercase(),
             "attempts": plan.attempts,
-            "requires_attention": plan.requires_attention,
+            "requires_attention": plan_needs_attention(plan),
             "error": plan.error,
             "queue_released": plan.queue_released,
             "routes": routes,
@@ -342,6 +344,15 @@ fn detail_value(
         .commands
         .iter()
         .map(|command| {
+            let decoded = parse_command(&command.command)?;
+            ensure!(
+                decoded.operation == word(&command.operation)?
+                    && decoded.domain == word(&command.domain)?
+                    && u64::from(decoded.action) == command.action,
+                "Indexed command identity mismatch"
+            );
+            let task = matches!(decoded.action, 5 | 7..=13).then(|| hex::encode(decoded.task));
+            let request = matches!(decoded.action, 5 | 7).then(|| hex::encode(decoded.request));
             let status = [
                 "unobserved",
                 "succeeded",
@@ -378,6 +389,10 @@ fn detail_value(
                 "action": action,
                 "plan": command.plan,
                 "signature_error": command.signature_error,
+                "task": task,
+                "request": request,
+                "amount": decoded.amount.to_string(),
+                "expires": decoded.expires.to_string(),
             }))
         })
         .collect::<Result<Vec<_>>>()?;
@@ -409,6 +424,41 @@ fn detail_value(
     ]));
     Ok(result)
 }
+fn withdrawal_recipient(
+    chain: Chain,
+    domain: &CoordinatorDomain,
+    snapshot: Option<&LocalSnapshot>,
+) -> Result<Option<String>> {
+    let recipient = word(&domain.owner_recipient)?;
+    Ok(Some(match chain {
+        Chain::Ethereum => {
+            ensure!(
+                recipient[..12] == [0; 12],
+                "Invalid Ethereum withdrawal recipient"
+            );
+            Address::from_slice(&recipient[12..]).to_checksum(None)
+        }
+        Chain::Solana => Pubkey::new_from_array(recipient).to_string(),
+        Chain::Near => {
+            let Some(snapshot) = snapshot else {
+                return Ok(None);
+            };
+            let owner = snapshot.state["owner"]
+                .as_str()
+                .context("Missing NEAR vault owner")?;
+            ensure!(
+                owner_identity(Chain::Near, owner)? == recipient,
+                "NEAR withdrawal recipient differs from its vault owner"
+            );
+            owner.to_owned()
+        }
+    }))
+}
+
+fn plan_needs_attention(plan: &CoordinatorPlan) -> bool {
+    plan.requires_attention && !matches!(plan.status.as_str(), "Funded" | "Closed")
+}
+
 fn state_name(state: u64, request: bool) -> Result<&'static str> {
     let states: &[&str] = if request {
         &["pending", "queued", "funded", "rejected", "removed"]

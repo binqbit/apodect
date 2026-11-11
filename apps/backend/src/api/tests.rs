@@ -203,6 +203,14 @@ async fn browser_identity_and_finalized_project_flow() -> Result<()> {
     )
     .await;
 
+    let request = test::TestRequest::get().uri("/api/config").to_request();
+    let public: Value = test::call_and_read_body_json(&app, request).await;
+    for chain in Chain::ALL {
+        assert_eq!(
+            public["wallet_networks"][chain.as_str()],
+            application.accounts.network(chain)
+        );
+    }
     let request = test::TestRequest::post()
         .uri("/api/auth/challenge")
         .insert_header((header::ORIGIN, "https://evil.example.com"))
@@ -295,7 +303,7 @@ async fn browser_identity_and_finalized_project_flow() -> Result<()> {
                 word[12..].copy_from_slice(ethereum_key.address().as_slice());
                 hex::encode(word)
             }
-            Chain::Near => number_word(999),
+            Chain::Near => hex::encode(Sha256::digest(b"owner.near")),
         };
         domains.insert(
             chain,
@@ -331,7 +339,26 @@ async fn browser_identity_and_finalized_project_flow() -> Result<()> {
     });
     let requests = json!({"solana":[coordinator_request]});
     let invoices = json!({"1":{"amount":LARGE,"purpose":number_word(7),"intended":LARGE,"closed":true,"response_reference":null,"actual_funding":LARGE}});
-    sqlx::query("INSERT INTO project_views(project,height,block_hash,state,domains,plans,commands,invoices,requests,queue_head) VALUES($1,10,'final-block',$2,$3,'[]','[]',$4,$5,$6)").bind(&key).bind(state).bind(json!(domains)).bind(invoices).bind(requests).bind(&coordinator_request).execute(&pool).await?;
+    let plans = ["Funded", "Closed", "Reserving"].into_iter().enumerate().map(|(index, status)| json!({
+        "plan": number_word(index as u64 + 1), "destination": project.domains[&Chain::Solana].domain,
+        "principal": LARGE, "local_amount": LARGE, "expires": 2_000_000_000_u64,
+        "status": status, "reserves": [], "routes": [], "allocation": null,
+        "invalidations": [], "closures": [], "attempts": 3, "requires_attention": true,
+        "error": null, "queue_released": status != "Reserving",
+    })).collect::<Vec<_>>();
+    let mut words = [[0u8; 32]; 12];
+    words[0] = crate::config::word(&project.domains[&Chain::Near].domain)?;
+    words[2][31] = apodect_solana::bridge::action::PAUSE;
+    words[3][31] = 1;
+    words[10][24..].copy_from_slice(&2_000_000_000_u64.to_be_bytes());
+    let commands = json!([{
+        "operation":number_word(1), "domain":project.domains[&Chain::Near].domain,
+        "command":hex::encode(words.concat()), "digest":number_word(20),
+        "action":apodect_solana::bridge::action::PAUSE, "plan":number_word(0),
+        "signature":null, "signing":false, "signature_error":null, "state":0, "result":number_word(0),
+    }]);
+    sqlx::query("INSERT INTO project_views(project,height,block_hash,state,domains,plans,commands,invoices,requests,queue_head) VALUES($1,10,'final-block',$2,$3,$4,$5,$6,$7,$8)")
+        .bind(&key).bind(state).bind(json!(domains)).bind(json!(plans)).bind(commands).bind(invoices).bind(requests).bind(&coordinator_request).execute(&pool).await?;
     for chain in Chain::ALL {
         let tasks = if chain == Chain::Solana {
             json!([{"id":task_id,"agent":address,"state":0,"paused":false,"started":false,"available":LARGE,"issued":0,"recovered":0,"pending_outflow":0,"control_nonce":0,"live_request":request_id,"report":null}])
@@ -354,7 +381,7 @@ async fn browser_identity_and_finalized_project_flow() -> Result<()> {
             "chain": chain,
             "height": 10,
             "block_hash": "final-block",
-            "state": {"free":LARGE.to_string()},
+            "state": {"free":LARGE.to_string(),"owner":"owner.near"},
             "tasks": tasks,
             "requests": requests,
             "funding": [],
@@ -376,6 +403,21 @@ async fn browser_identity_and_finalized_project_flow() -> Result<()> {
     assert_eq!(detail["available"], (u128::from(LARGE) * 3).to_string());
     assert_eq!(detail["tasks"][0]["available"], LARGE.to_string());
     assert_eq!(detail["invoices"][0]["amount"], LARGE.to_string());
+    assert_eq!(detail["attention_count"], 1);
+    assert_eq!(detail["plans"][0]["requires_attention"], false);
+    assert_eq!(detail["plans"][1]["requires_attention"], false);
+    assert_eq!(detail["plans"][2]["requires_attention"], true);
+    assert_eq!(
+        detail["commands"][0]["task"],
+        number_word(0),
+        "NEAR task zero remains a real task identifier"
+    );
+    assert!(detail["commands"][0]["request"].is_null());
+    assert_eq!(detail["commands"][0]["amount"], "0");
+    assert_eq!(detail["commands"][0]["expires"], "2000000000");
+    assert_eq!(detail["chains"][0]["owner_recipient"], ethereum_address);
+    assert_eq!(detail["chains"][1]["owner_recipient"], address);
+    assert_eq!(detail["chains"][2]["owner_recipient"], "owner.near");
     assert_eq!(detail["roles"]["owner"], false);
     assert_eq!(detail["roles"]["authority"], false);
     assert_eq!(detail["roles"]["agent"], true);
