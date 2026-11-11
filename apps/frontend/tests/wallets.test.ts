@@ -148,8 +148,7 @@ test("wallet pipelines retain transaction identity and stop after unknown or fin
   }
 });
 
-test("NEAR receipt failures stop the wallet pipeline even when the terminal callback succeeds", async () => {
-  storage.clear();
+test("NEAR receipts and accepted token amounts gate the next financial step", async (context) => {
   const network = {
     chain_id: "localnet",
     genesis_time: "2026-01-01T00:00:00Z",
@@ -159,7 +158,13 @@ test("NEAR receipt failures stop the wallet pipeline even when the terminal call
   const call = {
     receiver_id: "usdc.near",
     method_name: "ft_transfer_call",
-    args_base64: Buffer.from("{}").toString("base64"),
+    args_base64: Buffer.from(
+      JSON.stringify({
+        receiver_id: "vault.near",
+        amount: "1000000",
+        msg: '{"kind":"fund"}',
+      }),
+    ).toString("base64"),
     gas: 100_000_000_000_000,
     deposit: "1",
   };
@@ -169,68 +174,89 @@ test("NEAR receipt failures stop the wallet pipeline even when the terminal call
     network,
     transactions: [call, { ...call, method_name: "followup" }],
   };
-  const submissions: number[] = [];
-  globalThis.fetch = async (_url, request) => {
-    const { method } = JSON.parse(request!.body as string);
-    assert.equal(method, "tx");
-    return Response.json({
-      jsonrpc: "2.0",
-      result: {
-        final_execution_status: "FINAL",
-        status: { SuccessValue: Buffer.from("false").toString("base64") },
-        transaction_outcome: {
-          outcome: { status: { SuccessReceiptId: "initial-receipt" } },
-        },
-        receipts_outcome: [
-          {
-            outcome: {
+  for (const [accepted, receiptFailed, expectedStatus] of [
+    ["1000000", true, "failed"],
+    ["0", false, "failed"],
+    ["400000", false, "failed"],
+    ["1000000", false, "finalized"],
+    [null, false, "unknown"],
+    ["1000001", false, "unknown"],
+  ] as const) {
+    await context.test(
+      `accepted ${accepted}, receipt failed ${receiptFailed}`,
+      async () => {
+        storage.clear();
+        const submissions: number[] = [];
+        globalThis.fetch = async () =>
+          Response.json({
+            jsonrpc: "2.0",
+            result: {
+              final_execution_status: "FINAL",
               status: {
-                Failure: {
-                  ActionError: {
-                    index: 0,
-                    kind: {
-                      FunctionCallError: {
-                        ExecutionError: "transfer rejected",
-                      },
-                    },
+                SuccessValue: Buffer.from(JSON.stringify(accepted)).toString(
+                  "base64",
+                ),
+              },
+              transaction_outcome: {
+                outcome: { status: { SuccessReceiptId: "initial" } },
+              },
+              receipts_outcome: [
+                {
+                  outcome: {
+                    status: receiptFailed
+                      ? {
+                          Failure: {
+                            ActionError: { kind: "transfer rejected" },
+                          },
+                        }
+                      : { SuccessValue: "" },
                   },
                 },
-              },
+                { outcome: { status: { SuccessValue: "" } } },
+              ],
             },
+          });
+        const execute = runTransactions({
+          chain: "near",
+          actor: nearIntent.actor,
+          config: {
+            ...config,
+            near: { network_id: "localnet", genesis: network },
           },
-          {
-            outcome: {
-              status: { SuccessValue: Buffer.from("false").toString("base64") },
-            },
+          intent: nearIntent,
+          submission: "signed",
+          total: 2,
+          progress: () => {},
+          submit: async (index) => {
+            submissions.push(index);
+            return `near-step-${index}`;
           },
-        ],
+        });
+        if (expectedStatus === "finalized") {
+          await execute;
+          assert.deepEqual(submissions, [0, 1]);
+          assert.ok(
+            walletTransactions().every((item) => item.status === "finalized"),
+          );
+        } else {
+          await assert.rejects(execute, (error) => {
+            assert.ok(error instanceof WalletExecutionError);
+            assert.match(
+              error.message,
+              receiptFailed
+                ? /finalized with a failure/
+                : expectedStatus === "failed"
+                  ? /did not accept the full amount/
+                  : /unverifiable accepted amount/,
+            );
+            assert.equal(error.transactions[0].status, expectedStatus);
+            return true;
+          });
+          assert.deepEqual(submissions, [0]);
+        }
       },
-    });
-  };
-  await assert.rejects(
-    runTransactions({
-      chain: "near",
-      actor: nearIntent.actor,
-      config: { ...config, near: { network_id: "localnet", genesis: network } },
-      intent: nearIntent,
-      submission: "signed",
-      total: 2,
-      progress: () => {},
-      submit: async (index, record) => {
-        submissions.push(index);
-        record("near-transfer");
-        return "near-transfer";
-      },
-    }),
-    (error) => {
-      assert.ok(error instanceof WalletExecutionError);
-      assert.equal(error.transactions[0].status, "failed");
-      assert.equal(error.transactions[0].transactionId, "near-transfer");
-      return true;
-    },
-  );
-  assert.deepEqual(submissions, [0]);
-  assert.equal(walletTransactions()[0].status, "failed");
+    );
+  }
 });
 
 test("lost wallet responses remain recoverable before a hash, while explicit rejection permits retry", async () => {

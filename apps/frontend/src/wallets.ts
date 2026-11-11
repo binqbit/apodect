@@ -382,19 +382,20 @@ async function confirmTransaction(
       "The wallet did not return a hash. Find the transaction in its history to check the outcome.",
     );
   const started = Date.now();
+  const intent = transaction.expected;
   while (Date.now() - started < 120_000) {
     const done =
-      transaction.chain === "ethereum"
+      intent.chain === "ethereum"
         ? await (
             await import("./wallets/ethereum")
           ).isFinalized(transaction.transactionId)
-        : transaction.chain === "solana"
+        : intent.chain === "solana"
           ? await (
               await import("./wallets/solana")
             ).isFinalized(transaction.transactionId)
           : await (
               await import("./wallets/near")
-            ).isFinalized(transaction.transactionId, transaction.actor);
+            ).isFinalized(transaction.transactionId, intent);
     if (done) return;
     await new Promise((resolve) => setTimeout(resolve, 1_500));
   }

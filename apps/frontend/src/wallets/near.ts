@@ -198,7 +198,7 @@ export async function verifyNetwork(
 
 export async function isFinalized(
   hash: string,
-  actor: string,
+  intent: Extract<UnsignedIntent, { chain: "near" }>,
 ): Promise<boolean> {
   type ExecutionStatus =
     | string
@@ -213,7 +213,7 @@ export async function isFinalized(
   try {
     outcome = await rpc("near", "tx", {
       tx_hash: hash,
-      sender_account_id: actor,
+      sender_account_id: intent.actor,
       wait_until: "FINAL",
     });
   } catch (error) {
@@ -254,7 +254,34 @@ export async function isFinalized(
     throw new Error(
       "The finalized NEAR response contains an unresolved receipt. Check its status before continuing.",
     );
-  return typeof outcome.status === "object" && "SuccessValue" in outcome.status;
+  if (typeof outcome.status !== "object" || !("SuccessValue" in outcome.status))
+    return false;
+  const call = intent.transactions[0];
+  if (call.method_name === "ft_transfer_call") {
+    // NEP-141 can finalize successfully while refunding the entire transfer.
+    // Its result is the amount actually accepted, not a promise of credit.
+    const requested: unknown = JSON.parse(
+      new TextDecoder().decode(decodeBase64(call.args_base64)),
+    ).amount;
+    const accepted: unknown = JSON.parse(
+      new TextDecoder().decode(decodeBase64(outcome.status.SuccessValue!)),
+    );
+    if (
+      typeof requested !== "string" ||
+      typeof accepted !== "string" ||
+      !/^\d+$/.test(requested) ||
+      !/^\d+$/.test(accepted) ||
+      BigInt(accepted) > BigInt(requested)
+    )
+      throw new Error(
+        "The finalized NEAR token transfer returned an unverifiable accepted amount. Check its outcome before continuing.",
+      );
+    if (BigInt(accepted) !== BigInt(requested))
+      throw new TransactionFailed(
+        "The NEAR token transfer finalized, but the project did not accept the full amount. Check the refund and confirmed balances before preparing another transfer.",
+      );
+  }
+  return true;
 }
 
 export async function verifyTransaction(
