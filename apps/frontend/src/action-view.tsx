@@ -71,7 +71,14 @@ export function ActionFields({
     tokenAccount,
   } = values;
   return (
-    <fieldset disabled={busy} className="form-stack">
+    <fieldset
+      disabled={busy}
+      className="form-stack"
+      onInvalidCapture={(event) => {
+        const settings = (event.target as HTMLElement).closest("details");
+        if (settings) settings.open = true;
+      }}
+    >
       {kind === "create_task" && (
         <Field
           label="Execution network"
@@ -162,7 +169,9 @@ export function ActionFields({
         <div className="review">
           <dl className="definition-list">
             <div>
-              <dt>Approved / requested principal</dt>
+              <dt>
+                {kind === "apply" ? "Approved budget" : "Requested budget"}
+              </dt>
               <dd>
                 <Money value={target.request.amount} />
               </dd>
@@ -184,7 +193,7 @@ export function ActionFields({
           hint={
             existingReference
               ? "An existing nonzero 32-byte reference, as 64 hexadecimal characters."
-              : "Explain the work and expected use of funds. The explanation is saved with an immutable hash; it does not restrict downstream purchases."
+              : "Explain the work and use of funds. This record cannot be edited later and does not restrict what the agent can purchase."
           }
         >
           {existingReference ? (
@@ -217,7 +226,9 @@ export function ActionFields({
           hint={
             existingReference
               ? "An existing 32-byte reference."
-              : "Saved as an immutable explanation. A report does not replace confirmed token returns."
+              : kind === "finalize"
+                ? "This record cannot be edited later. Return unused funds separately before completing the task."
+                : "This record cannot be edited later. Transfer your contribution separately after responding."
           }
         >
           {existingReference ? (
@@ -243,16 +254,29 @@ export function ActionFields({
       )}
       {(purposeKinds.includes(kind) ||
         ["finalize", "respond_invoice"].includes(kind)) && (
-        <label className="checkbox-field">
-          <input
-            type="checkbox"
-            checked={existingReference}
-            onChange={(event) =>
-              change("existingReference", event.target.checked)
-            }
-          />
-          Use an existing on-chain reference instead of text
-        </label>
+        <details className="disclosure">
+          <summary>
+            {existingReference
+              ? "Reference input enabled"
+              : "Have an existing on-chain reference?"}
+          </summary>
+          <div className="disclosure-body">
+            <label className="checkbox-field">
+              <input
+                type="checkbox"
+                checked={existingReference}
+                onChange={(event) =>
+                  change("existingReference", event.target.checked)
+                }
+              />
+              Use a reference instead of writing text
+            </label>
+            <p className="review-note">
+              Use this only if you already have the reference for a saved
+              explanation. Switching input format keeps your current entry.
+            </p>
+          </div>
+        </details>
       )}
       {kind === "set_authority" && (
         <Field label="New manager’s NEAR account">
@@ -344,33 +368,50 @@ export function ActionFields({
           </Field>
         </>
       )}
-      {expiringKinds.includes(kind) && (
-        <Field
-          label="Command validity (minutes)"
-          hint="Unexecuted commands expire after this period; an already submitted transfer still needs settlement."
-        >
-          <input
-            type="number"
-            min="1"
-            max="1440"
-            required
-            value={minutes}
-            onChange={(event) => change("minutes", event.target.value)}
-          />
-        </Field>
-      )}
-      {needsStorage && (
-        <Field
-          label="Storage prepayment (NEAR)"
-          hint="The contract charges actual storage and refunds unused prepayment. Native network gas is additional."
-        >
-          <input
-            inputMode="decimal"
-            value={storage}
-            onChange={(event) => change("storage", event.target.value)}
-            required
-          />
-        </Field>
+      {(expiringKinds.includes(kind) || needsStorage) && (
+        <details className="disclosure">
+          <summary>
+            <span>Transaction settings</span>
+            <small>
+              {[
+                expiringKinds.includes(kind) && `Valid for ${minutes} min`,
+                needsStorage && `${storage} NEAR storage prepayment`,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+            </small>
+          </summary>
+          <div className="disclosure-body form-stack">
+            {expiringKinds.includes(kind) && (
+              <Field
+                label="Command validity (minutes)"
+                hint="Unexecuted commands expire after this period; an already submitted transfer still needs settlement."
+              >
+                <input
+                  type="number"
+                  min="1"
+                  max="1440"
+                  required
+                  value={minutes}
+                  onChange={(event) => change("minutes", event.target.value)}
+                />
+              </Field>
+            )}
+            {needsStorage && (
+              <Field
+                label="Storage prepayment (NEAR)"
+                hint="The contract charges actual storage and refunds unused prepayment. Native network gas is additional."
+              >
+                <input
+                  inputMode="decimal"
+                  value={storage}
+                  onChange={(event) => change("storage", event.target.value)}
+                  required
+                />
+              </Field>
+            )}
+          </div>
+        </details>
       )}
     </fieldset>
   );
@@ -417,11 +458,25 @@ export function ActionReview({
   return (
     <div className="review">
       <h3>Review before signing</h3>
+      {financialAmount && (
+        <div className="review-primary">
+          <span>
+            {kind === "respond_invoice"
+              ? "Intended contribution"
+              : target.request
+                ? kind === "apply"
+                  ? "Approved budget"
+                  : "Requested budget"
+                : "Amount"}
+          </span>
+          <Money value={financialAmount} />
+        </div>
+      )}
       <dl className="definition-list">
         <div>
-          <dt>Project coordinator</dt>
+          <dt>Signing network</dt>
           <dd>
-            <Address value={project.coordinator} />
+            <ChainBadge chain={intent.chain} />
           </dd>
         </div>
         {executionChain && executionChain !== intent.chain && (
@@ -429,6 +484,20 @@ export function ActionReview({
             <dt>Execution network</dt>
             <dd>
               <ChainBadge chain={executionChain} />
+            </dd>
+          </div>
+        )}
+        <div>
+          <dt>Your wallet</dt>
+          <dd>
+            <Address value={intent.actor} full />
+          </dd>
+        </div>
+        {receiver && (
+          <div>
+            <dt>Funds recipient</dt>
+            <dd>
+              <Address value={receiver} full />
             </dd>
           </div>
         )}
@@ -506,20 +575,6 @@ export function ActionReview({
             </div>
           </>
         )}
-        <div>
-          <dt>Signing network</dt>
-          <dd>
-            <ChainBadge chain={intent.chain} />
-          </dd>
-        </div>
-        {receiver && (
-          <div>
-            <dt>Funds recipient</dt>
-            <dd>
-              <Address value={receiver} />
-            </dd>
-          </div>
-        )}
         {kind === "set_authority" && (
           <>
             <div>
@@ -549,24 +604,6 @@ export function ActionReview({
                   BigInt(target.task.issued) - BigInt(target.task.recovered)
                 ).toString()}
               />
-            </dd>
-          </div>
-        )}
-        <div>
-          <dt>Your wallet</dt>
-          <dd>
-            <Address value={intent.actor} />
-          </dd>
-        </div>
-        {financialAmount && (
-          <div>
-            <dt>
-              {kind === "respond_invoice"
-                ? "Intended contribution"
-                : "Principal / amount"}
-            </dt>
-            <dd>
-              <Money value={financialAmount} />
             </dd>
           </div>
         )}
@@ -707,9 +744,19 @@ export function ActionReview({
           remains unchanged.
         </Notice>
       ))}
-      <details>
-        <summary>Exact wallet instructions</summary>
-        <pre>{JSON.stringify(intent, null, 2)}</pre>
+      <details className="disclosure">
+        <summary>Contract & wallet instructions</summary>
+        <div className="disclosure-body">
+          <dl className="definition-list">
+            <div>
+              <dt>Project coordinator</dt>
+              <dd>
+                <Address value={project.coordinator} />
+              </dd>
+            </div>
+          </dl>
+          <pre>{JSON.stringify(intent, null, 2)}</pre>
+        </div>
       </details>
     </div>
   );

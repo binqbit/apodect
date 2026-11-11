@@ -105,6 +105,7 @@ export function ActionDialog({
   const change: ChangeField = (field, value) => {
     setValues((previous) => ({ ...previous, [field]: value }));
     setPrepared(null);
+    setWaiting(null);
   };
   const [tokenAccounts, setTokenAccounts] = useState<
     { address: string; amount: string }[]
@@ -131,6 +132,7 @@ export function ActionDialog({
   const [progress, setProgress] = useState<WalletProgress[]>([]);
   const [receipts, setReceipts] = useState<WalletTransaction[] | null>(null);
   const dialog = useRef<HTMLDivElement>(null);
+  const stage = receipts ? "result" : intent ? "review" : "details";
   const needsToken =
     local &&
     chain === "solana" &&
@@ -212,6 +214,10 @@ export function ActionDialog({
       before?.focus();
     };
   }, []);
+  useEffect(() => {
+    dialog.current?.focus();
+    dialog.current?.scrollTo({ top: 0 });
+  }, [stage]);
   useEffect(() => {
     if (!needsToken || !actor) return;
     let current = true;
@@ -474,6 +480,17 @@ export function ActionDialog({
           }
         })()
       : null);
+  const review = prepared && (
+    <ActionReview
+      project={prepared.project}
+      target={prepared.target}
+      values={prepared.values}
+      intent={prepared.intent}
+      financialAmount={financialAmount}
+      costs={prepared.costs}
+      preparedExpires={prepared.expires}
+    />
+  );
   return (
     <div
       className="action-tray"
@@ -486,15 +503,25 @@ export function ActionDialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby="action-title"
+        aria-describedby="action-description"
         ref={dialog}
         tabIndex={-1}
         onKeyDown={(event) => {
-          if (event.key === "Escape") close();
+          if (event.key === "Escape") {
+            event.preventDefault();
+            event.stopPropagation();
+            close();
+          }
           if (event.key === "Tab") {
-            const elements = dialog.current?.querySelectorAll<HTMLElement>(
-              'button:not(:disabled), a[href], input:not(:disabled), textarea:not(:disabled), select:not(:disabled), summary, [tabindex="0"]',
-            );
-            if (!elements?.length) return;
+            const elements = Array.from(
+              dialog.current?.querySelectorAll<HTMLElement>(
+                'button:not(:disabled), a[href], input:not(:disabled), textarea:not(:disabled), select:not(:disabled), summary, [tabindex="0"]',
+              ) ?? [],
+            ).filter((element) => element.getClientRects().length > 0);
+            if (!elements.length) {
+              event.preventDefault();
+              return;
+            }
             const first = elements[0];
             const last = elements[elements.length - 1];
             if (
@@ -504,7 +531,11 @@ export function ActionDialog({
             ) {
               event.preventDefault();
               last.focus();
-            } else if (!event.shiftKey && document.activeElement === last) {
+            } else if (
+              !event.shiftKey &&
+              (document.activeElement === last ||
+                document.activeElement === dialog.current)
+            ) {
               event.preventDefault();
               first.focus();
             }
@@ -513,8 +544,15 @@ export function ActionDialog({
       >
         <div className="dialog-heading">
           <div>
+            <p className="action-step">
+              {stage === "result"
+                ? "Transaction result"
+                : stage === "review"
+                  ? "Step 2 of 2 · Review & sign"
+                  : "Step 1 of 2 · Set up"}
+            </p>
             <h2 id="action-title">{copy[kind].title}</h2>
-            <p>{copy[kind].description}</p>
+            <p id="action-description">{copy[kind].description}</p>
           </div>
           <button
             className="close-button"
@@ -591,15 +629,25 @@ export function ActionDialog({
           </form>
         ) : (
           <div className="form-stack">
-            <ActionReview
-              project={prepared!.project}
-              target={prepared!.target}
-              values={prepared!.values}
-              intent={intent}
-              financialAmount={financialAmount}
-              costs={prepared!.costs}
-              preparedExpires={prepared!.expires}
-            />
+            {receipts ? (
+              <>
+                <Notice tone={allFinalized ? "success" : "info"}>
+                  {allFinalized
+                    ? "Wallet transactions finalized. The project view updates after the indexer confirms the resulting state. Cross-chain delivery, when needed, continues separately."
+                    : unresolved
+                      ? "The wallet flow is incomplete. Check its recorded transactions in Account & wallets before preparing another payment. An unknown result never means the transfer failed."
+                      : nothingSubmitted
+                        ? "Nothing was submitted. You can review the action again when your wallet is ready."
+                        : "The failed step has a confirmed outcome. Earlier successful steps remain recorded; prepare a fresh action to continue from current chain state."}
+                </Notice>
+                <details className="disclosure">
+                  <summary>Reviewed transaction</summary>
+                  <div className="disclosure-body">{review}</div>
+                </details>
+              </>
+            ) : (
+              review
+            )}
             {progress.length > 0 && (
               <ul className="progress-list" aria-live="polite">
                 {progress.map((item) => (
@@ -614,9 +662,12 @@ export function ActionDialog({
                     <div>
                       Step {item.step} of {item.total}: {item.message}
                       {item.transactionId && (
-                        <div>
-                          <code>{item.transactionId}</code>
-                        </div>
+                        <details className="disclosure">
+                          <summary>Transaction ID</summary>
+                          <div className="disclosure-body">
+                            <code>{item.transactionId}</code>
+                          </div>
+                        </details>
                       )}
                     </div>
                   </li>
@@ -625,15 +676,6 @@ export function ActionDialog({
             )}
             {receipts ? (
               <>
-                <Notice tone={allFinalized ? "success" : "info"}>
-                  {allFinalized
-                    ? "Wallet transactions finalized. The project view updates after the indexer confirms the resulting state. Cross-chain delivery, when needed, continues separately."
-                    : unresolved
-                      ? "The wallet flow is incomplete. Check its recorded transactions in Account & wallets before preparing another payment. An unknown result never means the transfer failed."
-                      : nothingSubmitted
-                        ? "Nothing was submitted. You can review the action again when your wallet is ready."
-                        : "The failed step has a confirmed outcome. Earlier successful steps remain recorded; prepare a fresh action to continue from current chain state."}
-                </Notice>
                 <div className="button-row">
                   <button className="button" onClick={close}>
                     Back to project
