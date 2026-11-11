@@ -11,6 +11,7 @@ import { WalletPicker } from "./pages";
 import {
   WalletExecutionError,
   requireActor,
+  sameAddress,
   type ConnectedWallet,
   type WalletProgress,
   type WalletTransaction,
@@ -119,12 +120,7 @@ export function ActionDialog({
             : project.roles.authority_actor;
       if (!expected && !local)
         return [project.owner, project.authority].includes(wallet.address);
-      return (
-        !expected ||
-        (signingChain === "ethereum"
-          ? wallet.address.toLowerCase() === expected.toLowerCase()
-          : wallet.address === expected)
-      );
+      return !expected || sameAddress(wallet.address, expected, signingChain);
     }) ?? [];
   useEffect(() => {
     change("actor", eligibleWallets[0]?.address ?? "");
@@ -331,9 +327,7 @@ export function ActionDialog({
   const wallet = wallets.find(
     (item) =>
       item.chain === signingChain &&
-      (signingChain === "ethereum"
-        ? item.address.toLowerCase() === actor.toLowerCase()
-        : item.address === actor),
+      sameAddress(item.address, actor, signingChain),
   );
   function close() {
     if (!busy) onClose();

@@ -10,6 +10,7 @@ import {
   resolveWalletTransaction,
   discardUnsubmittedTransaction,
   walletTransactions,
+  sameAddress,
   type WalletTransaction,
   type ConnectedWallet,
   type WalletOption,
@@ -320,8 +321,13 @@ export function AccountPage() {
                     <Address value={wallet.address} />
                   </div>
                   <span className="role-badge">
-                    {wallet.address === account.session.wallet.address &&
-                    wallet.chain === account.session.wallet.chain
+                    {wallet.chain === account.session.wallet.chain &&
+                    wallet.network === account.session.wallet.network &&
+                    sameAddress(
+                      wallet.address,
+                      account.session.wallet.address,
+                      wallet.chain,
+                    )
                       ? "Current session"
                       : "Verified"}
                   </span>
@@ -394,8 +400,11 @@ export function AccountPage() {
                   account.wallets.some(
                     (wallet) =>
                       wallet.chain === transaction.chain &&
-                      wallet.address.toLowerCase() ===
-                        transaction.actor.toLowerCase(),
+                      sameAddress(
+                        wallet.address,
+                        transaction.actor,
+                        wallet.chain,
+                      ),
                   ),
                 )
                 .map((transaction) => (

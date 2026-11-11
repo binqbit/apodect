@@ -17,7 +17,7 @@ import {
   Routes,
 } from "react-router-dom";
 import { api, ApiError, type Account, type PublicConfig } from "./api";
-import type { ConnectedWallet } from "./wallets";
+import { sameAddress, type ConnectedWallet } from "./wallets";
 import { Landing } from "./landing";
 import { AccountPage, ProjectsPage } from "./pages";
 import { ProjectPage } from "./project";
@@ -81,7 +81,8 @@ function SessionProvider({ children }: { children: ReactNode }) {
     setWallets((previous) => [
       ...previous.filter(
         (item) =>
-          item.chain !== wallet.chain || item.address !== wallet.address,
+          item.chain !== wallet.chain ||
+          !sameAddress(item.address, wallet.address, wallet.chain),
       ),
       wallet,
     ]);

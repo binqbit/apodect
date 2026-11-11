@@ -12,6 +12,7 @@ import {
   runTransactions,
   walletTransactions,
   resolveWalletTransaction,
+  requireActor,
 } from "../src/wallets.ts";
 import { nearAction } from "../src/wallets/near.ts";
 
@@ -41,6 +42,19 @@ const intent: UnsignedIntent = {
     { to: "recipient", data: "0x5678", value: "0" },
   ],
 };
+
+test("wallet authorization accepts Ethereum address casing without merging Solana identities", () => {
+  const ethereum = "0xAbC1230000000000000000000000000000000000";
+  const solana = "So11111111111111111111111111111111111111112";
+  assert.doesNotThrow(() =>
+    requireActor(ethereum, ethereum.toLowerCase(), "ethereum"),
+  );
+  assert.doesNotThrow(() => requireActor(solana, solana, "solana"));
+  assert.throws(
+    () => requireActor(solana, solana.toLowerCase(), "solana"),
+    /Select the wallet/,
+  );
+});
 
 test("NEAR wallet wire actions preserve integers above JavaScript's exact range", () => {
   const args = '{"amount":18446744073709551615,"plan":"9223372036854775809"}';
@@ -117,7 +131,7 @@ test("wallet pipelines retain transaction identity and stop after unknown or fin
         await assert.rejects(
           runTransactions({
             chain: "ethereum",
-            actor: "owner",
+            actor: "OWNER",
             config,
             intent,
             submission: "wallet",

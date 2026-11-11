@@ -121,16 +121,22 @@ export function encodeBase64(value: Uint8Array): string {
   return btoa(Array.from(value, (byte) => String.fromCharCode(byte)).join(""));
 }
 
+export function sameAddress(
+  actual: string,
+  expected: string,
+  chain: Chain,
+): boolean {
+  return chain === "ethereum"
+    ? actual.toLowerCase() === expected.toLowerCase()
+    : actual === expected;
+}
+
 export function requireActor(
   actual: string,
   expected: string,
   chain: Chain,
 ): void {
-  const equal =
-    chain === "ethereum"
-      ? actual.toLowerCase() === expected.toLowerCase()
-      : actual === expected;
-  if (!equal)
+  if (!sameAddress(actual, expected, chain))
     throw new Error("Select the wallet that owns this action before signing.");
 }
 
@@ -197,9 +203,7 @@ export async function runTransactions(input: {
       (transaction) =>
         transaction.chain === input.chain &&
         transaction.network === network &&
-        (input.chain === "ethereum"
-          ? transaction.actor.toLowerCase() === input.actor.toLowerCase()
-          : transaction.actor === input.actor) &&
+        sameAddress(transaction.actor, input.actor, input.chain) &&
         ["submitted", "unknown"].includes(transaction.status),
     )
   ) {
