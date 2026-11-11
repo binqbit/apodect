@@ -77,13 +77,6 @@ export async function discoverWallets(
   return (await import("./wallets/near")).discoverNear(config);
 }
 
-export function connectWallet(
-  option: WalletOption,
-  _config: PublicConfig,
-): Promise<ConnectedWallet> {
-  return option.connect();
-}
-
 /** Development keys are imported explicitly and live only in the returned closure. */
 export async function importDevelopmentWallet(
   file: File,

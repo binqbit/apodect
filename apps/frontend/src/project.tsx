@@ -23,20 +23,19 @@ import {
 
 export function ProjectPage() {
   const { projectKey = "" } = useParams();
-  const decoded = projectKey;
   const location = useLocation();
-  const result = useLoad(decoded, () => api.project(decoded));
+  const result = useLoad(projectKey, () => api.project(projectKey));
   const [action, setAction] = useState<ActionTarget | null>(null);
   useEffect(() => {
     const timer = window.setInterval(() => {
       if (!document.hidden) result.refresh();
     }, 7000);
     return () => window.clearInterval(timer);
-  }, [decoded]);
-  useEffect(() => setAction(null), [decoded]);
+  }, [projectKey]);
+  useEffect(() => setAction(null), [projectKey]);
   const tab = location.pathname.split("/")[4] ?? "overview";
   const project = result.data;
-  const base = `/app/projects/${encodeURIComponent(decoded)}`;
+  const base = `/app/projects/${encodeURIComponent(projectKey)}`;
   if (!project)
     return result.error ? (
       <ErrorState error={result.error} retry={result.refresh} />

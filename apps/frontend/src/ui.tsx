@@ -1,4 +1,4 @@
-import { api, ApiError } from "./api";
+import { api, ApiError, type Chain } from "./api";
 import {
   Children,
   cloneElement,
@@ -11,8 +11,7 @@ import {
 import { Link } from "react-router-dom";
 
 export const chains = ["ethereum", "solana", "near"] as const;
-export type ChainName = (typeof chains)[number];
-export const chainNames: Record<ChainName, string> = {
+export const chainNames: Record<Chain, string> = {
   ethereum: "Ethereum",
   solana: "Solana",
   near: "NEAR",
@@ -67,7 +66,7 @@ export function Address({ value }: { value: string }) {
   );
 }
 
-export function ChainBadge({ chain }: { chain: ChainName }) {
+export function ChainBadge({ chain }: { chain: Chain }) {
   return (
     <span className={`chain chain-${chain}`}>
       <span aria-hidden="true">

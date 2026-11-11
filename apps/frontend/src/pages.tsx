@@ -3,7 +3,6 @@ import { Link } from "react-router-dom";
 import { api, type Chain, type ProjectRoles } from "./api";
 import { useSession } from "./app";
 import {
-  connectWallet,
   discoverWallets,
   importDevelopmentWallet,
   refreshWalletTransaction,
@@ -87,7 +86,7 @@ export function WalletPicker({
     setBusy(true);
     setError(undefined);
     try {
-      const wallet = await connectWallet(option, config);
+      const wallet = await option.connect();
       rememberWallet(wallet);
       await onConnect(wallet);
     } catch (failure) {
