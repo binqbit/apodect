@@ -10,6 +10,14 @@ Partners operate their own agents. Once funds leave controlled vaults for an ind
 
 Read the [Concept](docs/concept.md), [Architecture](docs/architecture.md), and [How It Works](docs/how-it-works.md), or start at the [documentation index](docs/README.md).
 
-The [local contracts milestone](docs/contracts.md) implements independent Project lifecycles on the three networks. See [contract packages and checks](contracts/README.md) for development. The complete cross-chain flow remains the intended product architecture; shared budget synchronization and external delivery/evidence integrations are deferred.
+The [contracts](docs/contracts.md) support independent Project lifecycles and an explicitly bound coordinated mode. A NEAR coordinator manages the shared approval queue, reservations and authenticated commands; each network enforces its own custody. The [cross-chain environment](docs/cross-chain-development.md) combines real local RPC transactions with separate local simulations of Chain Signatures, Read MPC and 1Click delivery. See [provider boundaries](docs/cross-chain-providers.md) before connecting public infrastructure.
 
-Run `make local-up` to start persistent Ethereum, Solana and NEAR development nodes with deployed contracts, test tokens and funded actors. Use `make local-smoke` to exercise them through RPC and `make local-down` to stop them while retaining state. See [local development](docs/local-development.md) for prerequisites, endpoints and reset commands.
+Run `make local-up` for the complete local stack: Ethereum, Solana, NEAR, deployed
+contracts, relayer and simulated providers. `make local-smoke` exercises cross-chain
+funding and agent lifecycles; `make local-down` stops the stack while retaining state.
+See [local development](docs/local-development.md) for setup and
+[workflows](docs/cross-chain-development.md) for task and funding commands.
+
+Run `make check` for contract, adapter and service checks, or `make fmt` to apply
+the repository formatters. Public MPC and liquidity integration remain separate
+from the local simulator; see [provider requirements](docs/cross-chain-providers.md).

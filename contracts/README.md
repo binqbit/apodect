@@ -1,37 +1,45 @@
 # Apodect contracts
 
-Three implementations of the [local Project lifecycle](../docs/contracts.md), with separate custody and the same business rules:
+Apodect coordinates a Project budget across Ethereum, Solana and NEAR. The NEAR
+coordinator owns approval ordering; each chain keeps its own token custody and
+executes its agents' withdrawals and returns. Funds become spendable only after
+the full approved principal is available on the task's chain.
 
-| Package | Execution | Verification |
-| --- | --- | --- |
-| [Ethereum](ethereum/README.md) | Solidity, ERC-20 Project vaults | Foundry EVM tests |
-| [Solana](solana/README.md) | Rust/Anchor, Project SPL Token vaults | Compiled SBF in LiteSVM |
-| [NEAR](near/README.md) | Rust, separate NEP-141 Project accounts | Wasm in NEAR sandbox |
+The [contract rules](../docs/contracts.md) explain roles, accounting and lifecycle
+behavior. The [coordination protocol](../docs/cross-chain-protocol.md) defines how
+commands and actual custody evidence connect the chains.
 
-Install the prerequisites documented by each package. From the repository root:
+## Develop locally
+
+Install the tools in the [Ethereum](ethereum/README.md),
+[Solana](solana/README.md) and [NEAR](near/README.md) setup guides, then run from
+the repository root:
 
 ```sh
 make local-up
+make local-check
 make local-smoke
 make local-down
 ```
 
-These commands manage persistent native development nodes, deployed contracts, local test assets and funded actors. Select one chain with `CHAIN=ethereum`, `CHAIN=solana` or `CHAIN=near`. See [local development](../docs/local-development.md) for installation, RPC endpoints, manifests, state persistence and reset instructions.
+This is one persistent three-chain environment with one Project per chain and
+local MPC/liquidity simulators. Stopping preserves state. To discard its ledgers,
+service history and disposable keys, run `make local-reset CONFIRM=1`.
+The [local guide](../docs/local-development.md) covers prerequisites and recovery;
+the [workflow guide](../docs/cross-chain-development.md) shows how to use
+`./scripts/localnet.sh` for tasks, funding and owner/authority actions.
 
-The independent contract test suites remain available:
+## Check changes
 
-```sh
-make check-ethereum
-make check-solana
-make check-near
-```
+Run `make check-ethereum`, `make check-solana` or `make check-near` for the package
+you changed. These checks build contracts and exercise their chain runtimes without
+requiring the persistent stack. `make check` also checks shared services and
+orchestration; `make fmt` applies the maintained formatters.
 
-`make check` runs all three package checks. Each checks formatting, compiles its contracts, and runs its maintained local tests. `make fmt` applies the corresponding language formatter. Package scripts work independently of the private `.agent-workspace` directory. Dependency lockfiles belong in Git; generated dependencies, compiled artifacts, and test ledgers do not.
+Use integer token base units and the exact configured token identity. Native gas,
+rent and storage are funded separately from Project USDC. Changed deployment
+artifacts require a fresh local deployment; there is no automatic upgrade.
 
-Use actual integer token base units. Configure the exact intended token identity; the tests deploy local test assets. Native gas, rent, and storage are funded separately from token principal. Test identities and assets are local and do not authorize public transactions.
-
-The package READMEs document interfaces, account requirements, chain-specific asynchronous behavior, and toolchain versions. [The shared specification](../docs/contracts.md) defines roles, FIFO admission, accounting, return-before-finalize, and pause/restoration semantics across all three implementations.
-
-[Source architecture](../docs/contract-architecture.md) explains module responsibilities, the review decisions, and compatibility checks for changes to the implementation structure.
-
-The contracts in this milestone operate independent local budgets. Cross-chain synchronization, remote authorization, 1Click, Read MPC, backend/UI, and public deployment verification remain subsequent work.
+Local contract execution uses real native nodes and test tokens. External MPC
+and delivery are simulated; public integration requirements are described in
+[provider boundaries](../docs/cross-chain-providers.md).

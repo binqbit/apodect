@@ -1,13 +1,17 @@
-# Product documentation
+# Documentation
 
-Apodect coordinates Project budgets for independent partner agents across NEAR, Ethereum, and Solana.
+Start with the product, then use the development guides:
 
-- [Concept](concept.md): the Project-budget problem, people, intended value, and control boundary.
-- [Architecture](architecture.md): contracts, services, delivery, evidence, and component diagrams.
-- [How It Works](how-it-works.md): the full request-to-completion journey, funding synchronization, fees, replenishment, cancellation, pause, and recovery.
-- [Local contracts](contracts.md): current implementation scope, common interfaces/accounting, and verification requirements for Ethereum, Solana, and NEAR.
-- [Local development](local-development.md): persistent local nodes, deployed contracts, test assets, actor keys, RPC smoke tests and environment lifecycle commands.
-- [Contract source architecture](contract-architecture.md): responsibility boundaries, chain-specific module organization, and structural compatibility checks.
-- [Contract mechanics review](contract-mechanics-review.md): rule/state coverage, regression evidence and contract changes required for cross-chain integration.
+- [Concept](concept.md): who Apodect serves and where its control ends.
+- [Architecture](architecture.md): coordination, local custody, delivery and evidence.
+- [How it works](how-it-works.md): requests, budgets, task execution and recovery.
+- [Contract rules](contracts.md): shared accounting and lifecycle behavior.
+- [Local development](local-development.md): prerequisites, one local stack, checks and reset.
+- [Local workflows](cross-chain-development.md): create tasks, fund Projects and exercise failures.
+- [Coordination protocol](cross-chain-protocol.md): identity, authorization and settlement guarantees.
+- [Provider integration](cross-chain-providers.md): simulated boundaries and public deployment requirements.
 
-Concept, Architecture, and How It Works describe the complete intended product. The local contract milestone has its own scope and validation status. Named cross-chain integrations are not claims of working deployment or verified routes.
+The local stack runs real contracts and test-token transfers. MPC and liquidity
+providers are simulated; a successful local run does not establish public provider
+availability or a public deployment. Package READMEs cover chain-specific setup;
+exact types and method signatures live with the implementation.

@@ -1,69 +1,59 @@
-# Apodect Solana contracts
+# Solana contracts
 
-This package implements the locally funded Project lifecycle in [the shared contract plan](../../docs/contracts.md). It uses Anchor accounts and legacy SPL Token custody. Each Project has its own PDA-owned token account, binds one exact six-decimal mint, and accounts only for actual owner funding and attributed agent returns. Every amount is an integer token base-unit `u64`; counters use checked arithmetic. Tokens sent directly to a vault remain outside the free ledger.
+The Solana program keeps each Project's funds in its own PDA-controlled token
+vault. It authenticates coordinator commands and preserves local agent control
+over withdrawals and returns. Full funding and actual token receipts determine
+spending rights; provider status alone cannot grant them. The shared
+[contract rules](../../docs/contracts.md) and [protocol](../../docs/cross-chain-protocol.md)
+explain the cross-chain behavior.
 
-Run `./scripts/check.sh` to check formatting, compile SBF, and execute the compiled program and SPL Token instructions in LiteSVM. Run `./scripts/fmt.sh` to format Rust files. No local validator, wallet file, RPC connection, deployment, or test funds are needed. The scripts work without `.agent-workspace` and accept `CARGO_TARGET_DIR` as a build-artifact root; they explicitly separate `sbf`, `host`, and `deploy` outputs. Explicit target paths also support the installed Nix Solana wrapper.
+## Build and check
 
-The verified toolchain is Solana CLI 4.0.3 / cargo-build-sbf 4.0.0 / platform-tools v1.53 (SBF Rust 1.89), with host Rust 1.99.1. The program pins Anchor 1.2.1 with Solana v4 dependencies; the runtime suite pins LiteSVM 0.18.2 and requires host Rust at least 1.97.1. Commit and preserve `Cargo.lock`; LiteSVM and Agave dependencies must remain compatible. Anchor's token-account initialization macro requires its Token-2022 module at compile time, while every runtime token-program account is explicitly `Program<Token>` and admits only the legacy SPL program.
+Use Solana CLI/test-validator 4.0.3, cargo-build-sbf 4.0.0 with platform-tools
+v1.53, and host Rust 1.97.1 or newer. Anchor 1.2.1 and LiteSVM 0.18.2 are pinned
+with their compatible Solana dependencies. Preserve the lockfile and upgrade
+these tools together. The first build needs network access.
 
-The fixed development program ID is `9HLdesoinPvKWr56HRfpbGL9M8yKWzzBFNAr4rbZLkQP`, derived from the SHA-256 bytes of `apodect.solana.local.v1`. It is an identifier for local compilation, testing and validator preload; no public deployment is claimed. A public deployment must select an actual program address and upgrade-authority policy, update the ID consistently, and rerun verification. This program contains no instruction to change its mint/owner/agent, drain occupied funds, bypass roles, or override accounting.
+From the repository root:
 
-## Persistent local validator
+```sh
+make check-solana
+./contracts/solana/scripts/fmt.sh
+```
 
-Use the repository's [local development commands](../../docs/local-development.md): `make local-up CHAIN=solana`, `make local-check CHAIN=solana`, `make local-smoke CHAIN=solana`, and `make local-down CHAIN=solana`. This environment runs the native `solana-test-validator` with the compiled program preloaded at its development address, without a program private key. It retains its ledger, test mint, funded distinct owner/authority/agent keys, Workspace, Project and vault in `.localnet/solana`. The manifest records addresses and local key paths; key files are mode 0600. Reset explicitly to start a new ledger or adopt changed program code.
+The check compiles SBF and executes it with SPL Token instructions in LiteSVM;
+it needs no running validator or wallet. Scripts separate host and SBF outputs
+under `CARGO_TARGET_DIR` so their Rust toolchains do not share incompatible builds.
+Use the crate's generated Anchor builders and [program interface](src/lib.rs)
+when constructing native calls.
 
-This local environment currently supports Linux with unprivileged user/network namespaces, configured subordinate UID/GID ranges and the `newuidmap`/`newgidmap` helpers. It needs the verified Solana/Rust build toolchain, `curl`, RootlessKit and slirp4netns. Installed isolation tools are preferred; otherwise the adapter uses Nix packages pinned to nixpkgs `7dcdd87373d72e7a2173e4db02e20d3d7f495cfd` (verified RootlessKit 2.3.6 and slirp4netns 1.3.3). Unsupported isolation fails explicitly. Use a short checkout/data path because the validator and namespace tools use Unix sockets.
+## Use the local stack
 
-Agave 4.0.3 hardcodes wildcard RPC/websocket/faucet listeners even with `--bind-address 127.0.0.1`. The adapter therefore runs it inside a [RootlessKit network namespace](https://github.com/rootless-containers/rootlesskit/blob/master/docs/network.md) and [publishes only host-loopback TCP ports](https://github.com/rootless-containers/rootlesskit/blob/master/docs/port.md): RPC 8899, websocket 8900 and faucet 9900 by default. Gossip and dynamic UDP ports stay inside the namespace. This uses the native validator binary; it requires neither a Docker daemon nor a validator fork.
+`make local-up` starts all three chains, preloads the compiled Solana program and
+binds one Project with 100,000 local test USDC. Use the common check, smoke,
+shutdown and explicit reset commands in the [local guide](../../docs/local-development.md).
+Task and funding commands use the shared `./scripts/localnet.sh` workflow.
 
-`scripts/localnet.sh` provides `prepare`, foreground `serve`, `bootstrap`, read-only `check`, and `smoke` for the shared lifecycle manager. `examples/localnet.rs` owns bootstrap/verification/smoke commands; `examples/localnet/client.rs` handles JSON-RPC, transaction signing/confirmation, local key storage and token setup. The client uses maintained Anchor builders/state types and the existing pinned Solana crates; `serde_json` and `wincode` are direct development dependencies already present in the lockfile graph. HTTP failures, RPC errors and failed/unknown confirmations stop the command. It never creates a freshly signed financial retry automatically.
+The persistent validator requires Linux, `curl`, RootlessKit and slirp4netns, with
+unprivileged user/network namespaces, subordinate UID/GID ranges and
+`newuidmap`/`newgidmap`. Installed isolation tools are used when available; the
+adapter also supports their pinned Nix packages. Some validator listeners ignore
+the requested bind address, so the stack isolates the process and publishes only
+loopback RPC, WebSocket and faucet ports. A short checkout/data path may be needed
+for native Unix socket limits.
 
-Bootstrap creates a six-decimal legacy SPL test mint and funds the Project with 100,000 test USDC. An interrupted bootstrap requires explicit reset. Check compares actual loader-v3 ProgramData bytecode with the prepared SBF artifact, verifies role keys, asset, account identities and controlled-principal coverage. Each smoke run creates a fresh task and performs confirmed real RPC transactions: allocate 60, withdraw 40, return 15, release 20 and finalize with expense 25 test USDC. It requires an empty funding queue and consumes 25 test USDC of Project cash; it preserves unrelated allocations. Transaction signatures and resulting task/request addresses are saved in `last-smoke.json` with `smoke: "passed"`.
+## Integration limits
 
-## Code organization
+Only the legacy SPL Token program and the exact configured six-decimal mint are
+accepted. Amounts fit `u64`; transaction fees and account rent are separate from
+USDC principal. Direct vault transfers remain outside the accounted balance.
 
-The package follows [Anchor's modular program structure](https://www.anchor-lang.com/docs/quickstart/local):
+Retain the validator ledger for funding and command evidence. Increasing retention
+cannot restore a pruned transaction, and an unknown signature never authorizes a
+fresh payment. Ledger disk use grows until an explicit local reset.
 
-| Location | Responsibility |
-| --- | --- |
-| `src/lib.rs` | Program ID and thin public instruction entry points; instruction names and arguments define the existing wire interface |
-| `src/instructions/<instruction>.rs` | One purpose-named `Accounts` context beside its handler, with that instruction's signer, account, mint, and PDA checks visible together |
-| `src/instructions/mod.rs` | Context exports and the generated account-module reexports required by Anchor's program/CPI macros |
-| `src/state.rs` | The five account records, related enums, and account methods; field order remains unchanged |
-| `src/errors.rs`, `src/events.rs` | Stable error codes and structured transition events, separate from persisted state |
-| `src/helpers.rs` | Shared checked arithmetic, amount validation, request creation/retirement, FIFO append, and controlled-principal release |
-| `tests/runtime/` | The compiled-SBF scenarios grouped by accounting/invoices, FIFO, lifecycle, authorization, and asset safety |
-| `tests/support/` | SVM signing transport, fixture setup/readers, and a shared actions implementation |
-
-Each instruction now exports its own Rust account-builder type, such as `accounts::ApproveRequest`, `accounts::RejectRequest`, `accounts::Withdraw`, and `accounts::ReturnFunds`; former broad shared context names are removed. `accounts::FundProject` exposes its fields directly instead of nesting the former `treasury` group. These source-client changes preserve flattened on-chain account order, signer/writable flags, optional-account sentinels, instruction bytes, persisted layouts/discriminators, events, and error codes. Event types are imported from `events`, errors from `errors`, and persisted types from `state`. The maintained runtime clients use these instruction-specific builders.
-
-## Accounts and addresses
-
-All addresses use canonical PDA bumps under the program ID. All nonce/index encodings below are little-endian `u64`.
-
-| Account | Seeds | Purpose |
-| --- | --- | --- |
-| Workspace | `workspace`, owner, caller-supplied nonce | Immutable owner and next Project index; an owner can create multiple Workspaces |
-| Project | `project`, Workspace, Project index | Authority, immutable mint, free funds, task/invoice counters and queue endpoints |
-| Token vault | `vault`, Project | Separate legacy SPL token account, with Project PDA as transfer authority |
-| Task | `task`, Project, task index | Immutable agent, lifecycle, pause/start flags, available/issued/recovered, live request and report |
-| BudgetRequest | `request`, Task, request index | Fixed amount/purpose/kind, decision, approval sequence and next queue entry |
-| Invoice | `invoice`, Project, invoice index | Requested amount/note, owner response, separate actually received funding |
-
-Accounts are not closed or reinitialized. Task final expense is derived only after completion as `issued - recovered`; no duplicate expense field is persisted. Task external outstanding is `issued - recovered - available`. The independent owner pause flag never resets first use or counters. Purpose references are nonzero 32-byte values; optional invoice/report/response references use 32 zero bytes for absence. References do not enforce purchases or conceal public data.
-
-## Public instructions
-
-The normal Cargo build generates the Rust `instruction::*` and `accounts::*` client builders; no `build.rs` or IDL file is required to use them or run this suite. The `idl-build` feature is available for later IDL generation with a matching Anchor 1.2.1 CLI. This milestone does not ship JSON IDL or TypeScript client artifacts; the installed Anchor 1.0.2 CLI is not used by the check script.
-
-The Rust-generated `instruction::*` and `accounts::*` types implement Anchor instruction/account encoding. `initialize_workspace`, `create_project`, and `set_authority` set up immutable custody and the replaceable authority. `create_task` includes a positive initial request; any signer may submit its own task while paying storage. `submit_request` permits a rejected initial replacement, a supplement after first use, or a restart of a stopped task. There is at most one live request per task.
-
-Authority uses `approve_request` / `reject_request`, `apply_next`, `mark_out_of_budget`, `restore_budget`, and `create_invoice`. Owner uses `fund_project`, `withdraw_free`, `cancel_task`, `pause_task`, `reclaim`, `continue_task`, and `respond_invoice`. The task agent uses `withdraw`, `return_funds`, `release_funds`, and `finalize_task`. Owner is not implicitly authority. Withdrawals transfer only to a token account owned by that exact immutable actor. Returns are real transfers from the task agent; releases/reclaims reclassify the same controlled tokens.
-
-Approval and authority restoration append one queue entry with the exact current `tail` account, including a removed tail. Provide `tail: None` only for an empty queue. `apply_next` accepts only the exact current head and handles exactly one entry: a live head requires its matching task and full funding; a removed head requires `task: None` and advances once. A later head cannot be selected. Queue history is never scanned.
-
-Cancellation, out-of-budget, and finalization require the exact current optional `pending` request account. Omission, substitution, or an extra request fails; successful retirement turns a queued entry into a tombstone. Anchor's generated account builder represents an absent optional account with the program-ID sentinel; callers should use the generated encoding. Finalization requires prior funding and zero controlled remainder, and it removes any live request atomically. Paused/stopped/out-of-budget tasks may return, release, and finalize. Restoring a paused active previously funded task creates a FIFO request and does not continue it. Continue requires positive retained/restored available funds and creates no issuance.
-
-Invoice response and funding are separate instructions. Response closes on partial, full, or zero intended contribution. `fund_project` can optionally attribute an actual owner transfer to a closed invoice of the same Project; the response itself creates no cash. Authority rotation preserves all existing records. Structured `Transition` events identify Project/task/request, action, amount, and explicit rejection/out-of-budget stop reasons; account state remains authoritative.
-
-The runtime tests cover accounting and token conservation; FIFO and queue tombstones; role and Project isolation; correct actor addresses without required signatures; omitted/substituted optional accounts; stops/restarts; cancellation/use ordering; pause/return/reclaim/restoration/Continue; completion and fixed expense; invoice settlement and rotation; real SPL failures; unsupported mints/programs; unsolicited deposits; and zero/excess/overflow values. The tests provide local runtime evidence, without cross-chain synchronization, 1Click, Read MPC, public deployment, or independent security-audit claims.
+The development program address is for local preload. A public deployment needs
+its own program address, authority policy, asset and provider configuration.
+Changed program artifacts require a fresh local ledger; existing accounts are
+not migrated automatically. See [provider boundaries](../../docs/cross-chain-providers.md)
+before extending the local simulator setup to public services.

@@ -50,7 +50,14 @@ The service must distinguish an intended action from an accepted action and from
 
 Approvals and Project permissions determine which actions may be performed. When a local contract must act on a NEAR-coordinated decision, it needs to recognize that decision as authorized.
 
-This outbound authorization path is separate from Read MPC. Its exact implementation still needs to be selected and validated; a worker carrying a message is not automatically trusted to issue commands.
+This outbound authorization path uses Chain Signatures. The NEAR coordinator
+creates a concrete command binding domain, operation, action, task, amount,
+recipient and deadline. The destination verifies its SHA-256 signature and
+immutable operation outcome. A separate local MPC simulator signs only finalized
+coordinator commands; a relayer cannot submit arbitrary digests for signing.
+Read MPC separately authenticates immutable source checkpoints and funding
+receipts. See the [protocol](cross-chain-protocol.md) and
+[provider capabilities](cross-chain-providers.md).
 
 ### Fund delivery
 
@@ -76,6 +83,10 @@ The service must show these boundaries. “Pause requested,” “paused locally
 
 For people and partners, the components come together as a Project view: what was requested, what was approved, what is waiting, what is committed, where delivery stands, what the agent can use, and what was returned or recorded as expense.
 
-The intended architecture is contract-governed and evidence-aware. It is not a claim of tested production enforcement. Working delivery, outbound authorization, and the exact Read MPC checks remain separate integration requirements.
+The architecture is enforced and tested in the coordinated local environment,
+including delivery, outbound authorization and the admitted Read MPC evidence
+shapes. This establishes local application behavior. Public MPC operators,
+provider availability and liquidity remain separate integration requirements;
+see [provider integration requirements](cross-chain-providers.md).
 
 See [How It Works](how-it-works.md) for the normal flow and its shortage, cancellation, pause, and recovery branches. [Concept](concept.md) explains the problem and product boundaries.

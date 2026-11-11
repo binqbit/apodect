@@ -1,8 +1,6 @@
-# Local contract implementation
+# Contract rules
 
-This milestone implements the same locally funded Project lifecycle on Ethereum, Solana, and NEAR. Each deployment authorizes and accounts for its own funds. Cross-chain budget synchronization, NEAR-origin remote commands, 1Click delivery, and Read MPC verification are deferred. These contracts do not yet enforce a single budget shared by three networks.
-
-The user selected this milestone on November 10, 2026, including open task submission and returns that release funds to the Project. The concrete interfaces below are engineering choices under the existing product rules.
+The contracts implement the same local Project lifecycle on Ethereum, Solana, and NEAR. A fresh Project can also be bound once to a NEAR coordinator and its signing key. That mode places approval, the common FIFO, reservations, invoices and owner controls under coordinator commands, while agent actions and custody remain local. The [coordination protocol](cross-chain-protocol.md) specifies this boundary; the [cross-chain environment](cross-chain-development.md) runs it with real local tokens and explicit delivery/MPC simulations. The standalone lifecycle below remains supported.
 
 ## Components and ownership
 
@@ -10,7 +8,7 @@ The user selected this milestone on November 10, 2026, including open task submi
 - The owner creates Projects, chooses the Project authority, funds the Project, withdraws free funds, cancels unused tasks, and controls task pause/reclaim/Continue.
 - Only the current authority approves or rejects budget requests, applies the funding queue, marks a task out of budget, restores a paused task's budget, and requests Project replenishment. Owner is not implicitly authority.
 - Any agent can create a task using its own authenticated identity and paying the required transaction/storage costs. Approval is the gate to funds; there is no separate agent registry. Only that agent may request its task's budget, withdraw its allocation, return/release funds, and finalize it.
-- Owner identity, Project asset, and task agent are immutable in this milestone. Authority replacement preserves existing requests, approvals, allocations, and invoices; only future authority actions use the new identity. Workspace membership and cross-chain address binding are outside this milestone.
+- Owner identity, Project asset, and task agent are immutable in this milestone. Authority replacement preserves existing requests, approvals, allocations, and invoices; only future authority actions use the new identity. Workspace membership is outside this implementation. Coordinated domains explicitly bind each chain vault and asset.
 
 Ethereum uses a registry and separate Project contract addresses. Solana uses Workspace/Project/task/request accounts and a separate Project token vault. NEAR uses a Workspace factory and a separate contract account for each Project, so each Project owns its own NEP-141 balance.
 
@@ -61,11 +59,11 @@ Nonterminal tasks may return/release funds and finalize even when stopped, out o
 
 ## Approval queue and Apply
 
-Each Project has its own approval-order FIFO. Approval appends a request and does not reserve money. Only authority calls Apply. One Apply call handles one queue head; it either allocates that request's full amount or leaves it waiting. Later smaller requests cannot bypass an underfunded head.
+An unbound Project has its own approval-order FIFO; coordinated Projects share the NEAR queue. Approval appends a request and does not reserve money. Only authority calls Apply. One Apply call handles one queue head; it either allocates that request's full amount or leaves it waiting. Later smaller requests cannot bypass an underfunded head.
 
 A queued request that was removed by cancellation, out-of-budget, or task finalization is a tombstone. Queue advancement may skip only verified removed entries. Implement bounded, constant-work advancement so a caller cannot scan unbounded history or choose a later live request. Approval order is determined by on-chain execution order.
 
-Applying a request atomically moves its full amount from Project free to task available, records issuance, and clears the task's live-request pointer. It does not transfer funds to the agent wallet. Local allocation is immediately usable subject to lifecycle and pause checks.
+Local allocation atomically moves the full amount from Project free to task available, records issuance, and clears the task's live-request pointer. It does not transfer funds to the agent wallet. Local allocation is immediately usable subject to lifecycle and pause checks. Coordinated Apply first completes reservations and any required delivery before issuing that allocation.
 
 ## Spending, return, completion, and cancellation
 
@@ -99,48 +97,15 @@ Response and actual funding are separate operations. The response records the in
 
 ## NEAR asynchronous settlement
 
-The configured FT is the only valid `ft_on_transfer` predecessor. Typed messages distinguish owner funding, invoice-linked owner funding, and agent returns; the FT-provided `sender_id` must match the required actor. Invalid or excess amounts are rejected/refunded without creating credit. Data-growing calls prepay their storage; incoming token callbacks update already allocated bounded records.
+The configured FT is the only valid `ft_on_transfer` predecessor. Typed messages distinguish owner funding, invoice-linked owner funding, and agent returns; the FT-provided `sender_id` must match the required actor. Invalid or excess amounts are rejected/refunded without creating credit. Data-growing calls prepay their storage. Standalone incoming token callbacks update already allocated bounded records. Coordinated owner funding also creates immutable receipts and optional intent references from the Project's native storage reserve; insufficient reserve refunds the FT transfer without crediting funds. The owner can replenish that reserve and retry.
 
 Outgoing transfers reserve funds and persist an operation before calling `ft_transfer`. Private callbacks authenticate and settle the same operation exactly once. Success records the outgoing effect. Known failure restores the corresponding held amount, preserving a task's pause/stop state. A callback does not send another payment.
 
 While unresolved, an outflow stays unavailable to allocation, return accounting, owner withdrawal, reclaim, and finalize. Lost/unknown callbacks remain pending; timeout does not release funds and there is no administrator method to declare an unproven failure. Force-pause blocks future acceptance but does not reverse an accepted transfer. Storage and callback gas must be provisioned so ordinary settlement does not depend on a new user payment.
 
-## Verification requirements
+## Development
 
-Every implementation must exercise the common scenarios below through its chain runtime, in addition to useful pure-state tests. Tests use local test assets and identities, with no public deployment or real funds.
-
-| Scenario | Expected result |
-| --- | --- |
-| Accounting example above | Final expense 25, Project free 75, zero task available |
-| Owner versus authority versus agent | No implicit role override or another agent's task access |
-| Two Projects | Neither funds nor substituted task/request/vault accounts cross the boundary |
-| Approval and FIFO shortage | Approval reserves nothing; smaller/later request cannot bypass |
-| Full allocation and repeated Apply | No partial allocation or double issuance |
-| Request rejection/removal and queue tombstones | Correct advancement, no later live-head bypass |
-| Additional request rejection and restart | Stop blocks spend; new approved/funded request restores active state |
-| Ordinary cancel versus first use | Only the pre-use ordering can cancel |
-| Pause and retained Continue | Spend blocked; return allowed; Continue adds no issuance |
-| Reclaim, restore, Continue | Correct actors/FIFO and balanced recovery/issuance |
-| Out-of-budget | Queue exit, no new allocation, cleanup allowed, another task possible |
-| Completion | Explicit release required; no repeated finalize or late return/expense rewrite |
-| Authority rotation | Old authority loses future powers; existing work and invoices survive |
-| Invoice response and actual funding | Partial/zero response closes; response alone creates no cash |
-| Wrong token, account substitution, transfer failure | No unauthorized custody or ledger mutation |
-| Zero/overflow/excess values and repeat calls | Checked failure without accounting corruption |
-| NEAR pending/failure/callback replay | Reserved until verified settlement; failure restores once |
-
-Solana verification must execute the compiled SBF program and SPL Token instructions. NEAR verification must execute compiled Wasm with an FT in sandbox, including failed asynchronous transfers. Ethereum verification must execute contract calls and token transfers in the EVM, with conservation/invariant cases. Formatting, compilation, and chain-runtime test results are reported separately from any future deployed verification.
-
-## Implementation status
-
-The local milestone is implemented and locally verified as of November 10, 2026. The subsequent [mechanics review](contract-mechanics-review.md) maps the agreed rules to code and tests, covers every local state, and identifies the contract changes required for cross-chain integration.
-
-| Package | Verification command from repository root | Verified result |
-| --- | --- | --- |
-| [Ethereum](../contracts/ethereum/README.md) | `make check-ethereum` | Formatting, compilation, 42 EVM tests: 39 unit/fuzz and 3 stateful invariants |
-| [Solana](../contracts/solana/README.md) | `make check-solana` | Formatting, SBF compilation, 24 compiled-program runtime tests |
-| [NEAR](../contracts/near/README.md) | `make check-near` | Formatting, three Wasm builds, 18 unit tests and 6 sandbox scenarios |
-
-The maintained suites exercise actual local token transfers and contract execution. Ethereum invariants each ran 128 sequences of 64 calls; fuzz tests used 256 cases. Solana tests execute the compiled SBF program with SPL Token instructions. NEAR tests execute Project/factory Wasm and a standards-based FT, including failed and concurrent asynchronous transfers and failed Project creation refunds. No tests were skipped.
-
-See the [package index](../contracts/README.md) for setup and shared commands, and [source architecture](contract-architecture.md) for responsibility boundaries and refactor compatibility checks. These results cover this local scope; they do not establish public deployment, production asset integration, an independent security audit, or cross-chain synchronization.
+The [package guides](../contracts/README.md) explain toolchains and checks.
+[Local development](local-development.md) starts the complete coordinated stack;
+[workflows](cross-chain-development.md) show task, funding and recovery operations.
+Contract suites exercise these rules in the EVM, compiled Solana SBF and NEAR Wasm.

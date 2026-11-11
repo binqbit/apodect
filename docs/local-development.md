@@ -1,18 +1,34 @@
-# Local blockchain environments
+# Local development
 
-Apodect provides three persistent development chains: Anvil for Ethereum, a Solana test validator, and NEAR sandbox. Each runs the actual compiled contracts and has an independent funded Project, a six-decimal test token, and separate owner, authority and agent identities. These environments implement the [local contract milestone](contracts.md); they do not synchronize budgets between networks.
+One environment runs Ethereum (Anvil), Solana test-validator and NEAR sandbox,
+deploys the contracts, and starts the relayer and simulated MPC/liquidity providers.
+All contract calls and test-token transfers execute on those native nodes.
+External provider behavior is simulated; see [integration boundaries](cross-chain-providers.md).
 
-## Requirements and first launch
+## Requirements
 
-Use Linux x86-64 with Bash, Make, Python 3.10+, Git and the native tools listed below. Initial builds download pinned Rust dependencies, contract libraries, compilers and the NEAR sandbox binary; allow disk space and time for native builds. Running all three nodes also needs enough resources for the Solana validator. Each network can be used independently.
+Use Linux x86-64 with Bash, Make, Git, curl, Python 3.11+ and `uv`, plus:
 
-| Network | Prerequisites | Package instructions |
-| --- | --- | --- |
-| Ethereum | Foundry 1.7.1 with `forge`, `cast`, `anvil`, and Solidity 0.8.33; alternatively Nix with flakes enabled, using the pinned automatic fallback | [Ethereum](../contracts/ethereum/README.md) |
-| Solana | Solana CLI/test-validator 4.0.3, `cargo-build-sbf` 4.0.0 with platform-tools v1.53, host Rust 1.97.1+, `curl`, RootlessKit and slirp4netns; the last two have a pinned Nix fallback | [Solana](../contracts/solana/README.md) |
-| NEAR | Rustup with Rust 1.99.0, rustfmt and the `wasm32-unknown-unknown` target, plus native Rust build tools; sandbox 2.14.0 is installed automatically | [NEAR](../contracts/near/README.md) |
+| Package | Tools |
+| --- | --- |
+| [Ethereum](../contracts/ethereum/README.md) | Foundry 1.7.1 and Solidity 0.8.33 |
+| [Solana](../contracts/solana/README.md) | CLI/test-validator 4.0.3, cargo-build-sbf 4.0.0 with platform-tools v1.53, host Rust 1.97.1+, RootlessKit and slirp4netns |
+| [NEAR](../contracts/near/README.md) | Rustup toolchain 1.99.0 with rustfmt and wasm32-unknown-unknown; native build tools |
 
-From the repository root:
+The scripts download pinned dependencies and NEAR sandbox 2.14.0 on first use.
+Foundry and RootlessKit have pinned Nix fallbacks when unavailable locally.
+`uv` installs locked Python dependencies under `.localnet/tools/`; it does not
+change system Python. Initial builds and the Solana validator need substantial
+disk space and memory.
+
+Solana runs inside a RootlessKit network namespace because the validator exposes
+some listeners beyond its configured bind address. Enable unprivileged user/network
+namespaces and configure subordinate UID/GID ranges with `newuidmap`/`newgidmap`.
+Only its RPC, WebSocket and faucet TCP ports are published on loopback. Docker and
+administrator access are not needed at runtime. A very long checkout path may need
+shortening to fit native Unix socket limits.
+
+## Start and use
 
 ```sh
 make local-up
@@ -21,83 +37,69 @@ make local-check
 make local-smoke
 ```
 
-`local-up` builds the required artifacts, starts nodes on loopback, waits for RPC readiness, deploys contracts and creates funded actors on the first launch. Subsequent launches reuse the same chain and deployment. Nodes continue running after the command exits. `local-check` verifies the deployment through RPC, including contract code, configured token and roles. `local-smoke` sends signed transactions through RPC and verifies the local task lifecycle; it creates new task records on each run.
+`local-up` builds, deploys and binds one Project on each chain to the NEAR
+coordinator, initializes test assets and actors, starts services and synchronizes
+balances. Repeating it reuses the existing environment. `local-check` verifies
+finalized custody against the coordinator. `local-smoke` exercises all three routes,
+partial delivery, delayed refunds, false provider success, restart recovery and
+agent withdrawals/returns. It creates task history and spends test transport fees.
+Run it with no unfinished plans or unrelated activity.
 
-Select one network for any command:
+Use [the workflow guide](cross-chain-development.md) to create tasks, approve
+budgets, fund Projects and exercise failure recovery.
 
-```sh
-make local-up CHAIN=ethereum
-make local-smoke CHAIN=solana
-make local-check CHAIN=near
-```
-
-These are wrappers around `python3 scripts/localnet.py <command> [all|ethereum|solana|near]`. The default is `all`. Chains are processed independently: if one fails, the command reports a failure and still attempts the others. Successfully started environments remain available.
-
-## Endpoints, accounts and state
-
-| Network | HTTP RPC | Additional ports |
+| Component | Default endpoint | Data |
 | --- | --- | --- |
-| Ethereum | `http://127.0.0.1:8545` | Chain ID `31337` |
-| Solana | `http://127.0.0.1:8899` | WebSocket `8900`, faucet `9900` |
-| NEAR | `http://127.0.0.1:3030` | Node network `24567` |
+| Ethereum | `http://127.0.0.1:8545` | `.localnet/ethereum/` |
+| Solana | `http://127.0.0.1:8899` | `.localnet/solana/` |
+| NEAR | `http://127.0.0.1:3030` | `.localnet/near/` |
+| Simulated provider API | `http://127.0.0.1:18080` | `.localnet/coordination/` |
 
-Each environment writes `.localnet/<chain>/manifest.json`. Read this file for actual contract addresses, token identity, RPC URL, actor addresses and paths to disposable signing keys. Contract addresses and account formats differ between networks; consumers should use their chain's manifest instead of hard-coded addresses. Amounts are integer token base units: `1_000_000` represents one six-decimal test token. Native gas, rent and storage balances are separate from Project token principal.
+Solana also uses WebSocket 8900 and faucet 9900; NEAR uses network port 24567.
+The coordination manifest records the actual RPCs, vaults, tokens and domains.
+Per-chain manifests contain deployment and actor details. All keys, databases,
+manifests and logs are Git-ignored. Native gas, rent and storage are separate from
+Project USDC.
 
-The complete generated environment is under the Git-ignored `.localnet/` directory. Node logs, keys, deployment manifests, process ownership records and chain databases belong to that directory. Directories and credentials are private to the local user. Source code and reusable tooling are under `scripts/` and `contracts/<chain>/`; they work without `.agent-workspace/`.
+Port overrides are `APODECT_<CHAIN>_<RPC|FAUCET|NETWORK>_PORT` and
+`APODECT_PROVIDER_PORT`. Set them before the first start and retain them on restart.
+For example, `APODECT_ETHEREUM_RPC_PORT=18545 make local-up` changes Ethereum's
+port in this same environment. There is no second node profile.
 
-Owner, authority and agent are distinct local identities. Bootstrap deploys the supported local test asset, creates a Workspace/Project, registers or creates the necessary token accounts and funds the Project. Follow the package README for native transaction examples and chain-specific manifest fields. NEAR's contract-created Project has no signing key; callers act through its documented methods. Solana preloads the compiled program at its fixed development address when initializing the validator ledger.
-
-## Stop, resume and reset
+## Stop, diagnose and reset
 
 ```sh
 make local-down
 make local-up
+make local-logs
 ```
 
-Stopping gracefully retains chain data, keys and deployment addresses. The manager records process start identity and signals only processes it launched. It refuses occupied ports and does not stop another application to obtain a port. Do not run two copies of a node against the same database.
+Stopping preserves state and waits for in-flight native submissions. Status shows
+node/service health, unsettled payments and reconciliation errors. Logs include
+nodes and services; full logs remain in their data directories. A failed startup
+retains diagnostic data. The manager only signals owned processes and rejects
+occupied ports. One lifecycle operation runs at a time.
 
-To discard a selected development chain and all of its disposable keys:
+To discard the local chains, deployments, service journals and disposable keys:
 
 ```sh
-make local-reset CHAIN=ethereum CONFIRM=1
-make local-up CHAIN=ethereum
+make local-reset CONFIRM=1
+make local-up
 ```
 
-`make local-reset CONFIRM=1` resets all three. Reset without `CONFIRM=1` refuses deletion. Reset stops the selected owned node before removing its generated data. It does not remove source, dependencies or compiled contract artifacts. New bootstrap may produce different contract addresses and keys, so reload the manifest afterward.
+Reset is destructive and explicit; it keeps source, toolchains and build caches.
+Contract changes require a fresh deployment, not an automatic upgrade. Retain any
+valuable history before resetting. Environments from the old separate-profile
+setup are not migrated or deleted automatically; start fresh with this layout.
 
-When contract code changes, reset and rebuild the affected chain. Existing deployed contracts are not automatically upgraded. `local-check` rejects deployed code that differs from the current compiled artifacts. Use `local-down`, then `local-reset ... CONFIRM=1` and `local-up` for a clean deployment of changed code. Failed or ambiguous partial bootstrap is reported explicitly; reset the selected disposable environment when the adapter requires it.
+Local Ethereum finality advances with empty blocks; Solana and NEAR retain the
+history needed to reverify receipts after restart. Their ledgers grow until reset.
+A missing historical receipt never means that its payment failed.
 
-## Port configuration and diagnostics
+## Development checks
 
-Set port overrides before the first launch and keep them set when restarting:
-
-```sh
-APODECT_ETHEREUM_RPC_PORT=18545 make local-up CHAIN=ethereum
-APODECT_SOLANA_RPC_PORT=18899 APODECT_SOLANA_FAUCET_PORT=19900 make local-up CHAIN=solana
-APODECT_NEAR_RPC_PORT=13030 APODECT_NEAR_NETWORK_PORT=34567 make local-up CHAIN=near
-```
-
-Solana's WebSocket port is always RPC port plus one. Configuration is retained in `.localnet/<chain>/settings.json`; checks, status and shutdown use that saved configuration. Changing a persistent environment's ports requires an explicit reset. All adapters require local loopback RPC and validate their own chain/deployment identity before sending transactions.
-
-Agave's test-validator binds some services to wildcard addresses despite `--bind-address`. The Solana adapter therefore runs the native validator in a RootlessKit network namespace and publishes only the three loopback TCP ports above. Docker is not required. Linux must permit unprivileged user/network namespaces and have subordinate UID/GID ranges and the `newuidmap`/`newgidmap` helpers configured for your user. Once those host prerequisites are configured, running the environments requires no administrator access. `unshare --user --map-root-user --net true` checks basic namespace availability; RootlessKit also needs the ID mapping prerequisites. Startup fails explicitly if isolation is unavailable. The validator and RootlessKit use Unix sockets, so very long checkout paths must be shortened as directed by the adapter's path-length error.
-
-```sh
-make local-logs CHAIN=near
-make local-status
-```
-
-`local-logs` shows the last 60 lines of each selected node log. For continuous output, use `tail -f .localnet/<chain>/node.log`. Startup/build/bootstrap failures are reported by the command; runtime node output is in that log. A failed startup stops its newly launched node and retains data for diagnosis. If graceful shutdown times out, the manager preserves the process record and database instead of forcing a kill.
-
-Only one lifecycle command mutates a checkout's environments at a time. The manager uses an operating-system file lock, released when the command exits. If another operation is still running, let it finish before issuing another control command. Status and logs remain available while an operation is running.
-
-## Verification
-
-```sh
-make check-localnet  # Process ownership, persistence, port and manifest guard tests.
-make check          # Contract formatting, builds and maintained contract test suites.
-make local-smoke    # Signed transactions against the running persistent RPC nodes.
-```
-
-The lifecycle-manager tests use an isolated HTTP process to exercise orchestration. The package tests use Foundry, compiled SBF in LiteSVM, and Wasm in NEAR sandbox. RPC smoke tests additionally verify the deployment and actual transactions on the persistent local nodes. None of these tests establishes public-chain deployment or cross-chain synchronization.
-
-Verified on November 10, 2026: all three default-port environments deployed successfully, passed signed RPC lifecycle smoke tests, and retained deployment/state after graceful stop and restart. Host listener inspection confirmed loopback exposure. The regression run passed 42 Ethereum tests, 24 Solana tests, 18 NEAR unit tests plus six sandbox scenarios, and 10 lifecycle-manager tests.
+`make check` runs formatting, builds and the contract, adapter and service suites.
+Use `make check-ethereum`, `make check-solana`, `make check-near`,
+`make check-crosschain` or `make check-localnet` for a focused change.
+`make fmt` formats maintained Solidity, Rust and Python. `make local-smoke`
+complements these checks with the actual running stack.
