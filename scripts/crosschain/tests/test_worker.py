@@ -53,6 +53,8 @@ class TransportFixture(unittest.TestCase):
             identity(4),
             identity(5),
         )
+        self.source_escrow = "0x7dd918a87aca959877be90263f7f7971fbdd05aa"
+        self.destination_escrow = "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx"
         self.bindings = {
             "ethereum": {
                 "domain": self.source,
@@ -70,8 +72,8 @@ class TransportFixture(unittest.TestCase):
         self.request = {
             "originAsset": "local:ethereum:usdc",
             "destinationAsset": "local:solana:usdc",
-            "recipient": "destination-escrow",
-            "refundTo": "source-escrow",
+            "recipient": self.destination_escrow,
+            "refundTo": self.source_escrow,
         }
         self.response = {
             "quoteRequest": self.request,
@@ -91,8 +93,8 @@ class TransportFixture(unittest.TestCase):
             "min_input": 105,
             "output": 100,
             "deposit": raw_id(self.bindings["ethereum"]["deposit_word"]),
-            "recipient": "destination-escrow",
-            "refund": "source-escrow",
+            "recipient": self.destination_escrow,
+            "refund": self.source_escrow,
             "quote_hash": digest(canonical_json(self.response)).hex(),
             "expires": 1,
         }
@@ -145,12 +147,13 @@ class TransportFixture(unittest.TestCase):
         )
         chains = {}
         for name, address in (
-            ("ethereum", "source-escrow"),
-            ("solana", "destination-escrow"),
+            ("ethereum", self.source_escrow),
+            ("solana", self.destination_escrow),
         ):
             chain = Mock(
                 spec=(
                     "route_address",
+                    "recipient_identity",
                     "route_view",
                     "deposit_route",
                     "execute_command",
@@ -158,6 +161,9 @@ class TransportFixture(unittest.TestCase):
                 )
             )
             chain.route_address.return_value = address
+            chain.recipient_identity.side_effect = lambda address, name=name: (
+                Chain.recipient_identity(SimpleNamespace(name=name), address)
+            )
             chain.route_view = self.route_view
             chains[name] = chain
         self.network = SimpleNamespace(
@@ -245,11 +251,30 @@ class TransportProvenanceTests(TransportFixture):
                     )
 
     def test_quote_hash_and_actual_receivers_are_independently_bound(self):
+        # Checksummed Ethereum recipients name the same custody as lowercase RPC
+        # addresses; the signed quote itself must still match its commitment.
+        self.request["refundTo"] = "0x7dD918a87aCa959877Be90263f7F7971fbDD05Aa"
+        self.quote["refund"] = self.request["refundTo"]
+        self.quote["quote_hash"] = digest(canonical_json(self.response)).hex()
+        self.journal.put(
+            "quote",
+            raw_id(self.route_id),
+            {"request": self.request, "response": self.response},
+        )
+        self.assertEqual(
+            self.provider.verify_dispatch(
+                self.route_id, self.metadata, self.evidence()
+            ),
+            ("ethereum", "solana", 110),
+        )
         changed = copy.deepcopy(self.metadata)
         changed["quote"]["quote"]["amountOut"] = "101"
         with self.assertRaisesRegex(ValueError, "commitment"):
             self.provider.verify_dispatch(self.route_id, changed, self.evidence())
-        self.network.chains["solana"].route_address.return_value = "another-escrow"
+        # Case changes in base58 identify a different Solana account.
+        self.network.chains["solana"].route_address.return_value = (
+            self.destination_escrow[:-1] + "X"
+        )
         with self.assertRaisesRegex(ValueError, "registered route custody"):
             self.provider.verify_dispatch(self.route_id, self.metadata, self.evidence())
 

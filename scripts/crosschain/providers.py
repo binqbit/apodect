@@ -550,10 +550,16 @@ class TransportProvider:
             or request["refundTo"] != quote["refund"]
         ):
             raise ValueError("quoted transfer terms differ from authorized route")
-        if quote["recipient"] != net.chains[destination].route_address(
-            route_id, "delivery"
-        ) or quote["refund"] != net.chains[source].route_address(route_id, "refund"):
-            raise ValueError("quote does not target registered route custody")
+        for chain, recipient, kind in (
+            (destination, quote["recipient"], "delivery"),
+            (source, quote["refund"], "refund"),
+        ):
+            adapter = net.chains[chain]
+            custody = adapter.route_address(route_id, kind)
+            if adapter.recipient_identity(recipient) != adapter.recipient_identity(
+                custody
+            ):
+                raise ValueError("quote does not target registered route custody")
         if route["dispatch"] is None:
             raise PendingEvidence("coordinator has not authorized source dispatch")
         record = net.view("get_command", operation=raw_id(route["dispatch"]))
