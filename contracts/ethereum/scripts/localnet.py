@@ -4,6 +4,7 @@
 import hashlib
 import json
 import os
+import re
 import secrets
 import subprocess
 import sys
@@ -655,9 +656,54 @@ class LocalEthereum:
         result = EthereumBridge(self).run(json.load(sys.stdin))
         print(json.dumps(result))
 
+    def export_wallet(self, role):
+        require(role in {"owner", "authority", "agent"}, "Unknown actor role")
+        account = read_json(self.manifest_path)["accounts"][role]
+        key_file = Path(account["key_file"])
+        environment = os.environ.copy()
+        environment["CAST_UNSAFE_PASSWORD"] = (
+            Path(account["password_file"]).read_text().strip()
+        )
+        result = subprocess.run(
+            [
+                "cast",
+                "wallet",
+                "decrypt-keystore",
+                key_file.name,
+                "--keystore-dir",
+                str(key_file.parent),
+            ],
+            env=environment,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        # Captured output contains a private key and must never be logged.
+        match = re.search(r"\b0x[0-9a-fA-F]{64}\b", result.stdout)
+        require(
+            result.returncode == 0 and match is not None,
+            "Cannot unlock local test wallet",
+        )
+        directory = self.directory.parent / "wallets"
+        require(not directory.is_symlink(), "Wallet directory must not be a symlink")
+        directory.mkdir(exist_ok=True, mode=0o700)
+        path = directory / f"{role}.ethereum.json"
+        write_json(
+            path,
+            {
+                "chain": "ethereum",
+                "address": account["address"],
+                "private_key": match.group(0),
+            },
+        )
+        print(json.dumps({"wallet_file": str(path), "chain": "ethereum", "role": role}))
+
 
 def main():
     os.umask(0o077)
+    if len(sys.argv) == 3 and sys.argv[1] == "export-wallet":
+        LocalEthereum().export_wallet(sys.argv[2])
+        return
     require(
         len(sys.argv) == 2
         and sys.argv[1] in {"prepare", "serve", "bootstrap", "check", "bridge"},

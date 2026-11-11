@@ -17,7 +17,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from backend import export_runtime
+from backend import export_runtime, export_wallet
 from chains import Chain, Network, PendingEvidence
 from journal import Journal
 from localnet import (
@@ -649,6 +649,11 @@ def main():
         sub.add_parser(action)
     status_parser = sub.add_parser("status")
     status_parser.add_argument("--require-ready", action="store_true")
+    wallet = sub.add_parser(
+        "export-wallet", help="Export a disposable wallet for local browser signing"
+    )
+    wallet.add_argument("chain", choices=CHAINS)
+    wallet.add_argument("role", choices=("owner", "authority", "agent"))
     reset = sub.add_parser("reset")
     reset.add_argument("--yes", action="store_true")
     request = sub.add_parser("request")
@@ -753,6 +758,9 @@ def main():
         print(json.dumps(report, indent=2))
         if args.require_ready:
             require_ready(report)
+        return
+    if args.action == "export-wallet":
+        print(json.dumps(export_wallet(args.chain, args.role), indent=2))
         return
     net = network()
     if args.action == "request":

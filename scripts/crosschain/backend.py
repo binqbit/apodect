@@ -1,9 +1,11 @@
 """Export deployment addresses and dedicated gas credentials for Rust services."""
 
+import json
 import os
+import subprocess
 from pathlib import Path
 
-from localnet import ROOT, LocalnetError, read_json, write_json
+from localnet import ROOT, Environment, LocalnetError, read_json, write_json
 
 
 def export_runtime(network):
@@ -91,3 +93,42 @@ def write_private(path, contents):
         output.flush()
         os.fsync(output.fileno())
     temporary.replace(path)
+
+
+def export_wallet(chain, role):
+    """Explicitly export one disposable actor wallet for browser-only local signing."""
+    if chain not in ("ethereum", "solana", "near") or role not in (
+        "owner",
+        "authority",
+        "agent",
+    ):
+        raise LocalnetError("Choose a local chain and owner, authority or agent wallet")
+    environment = Environment(chain)
+    if chain == "ethereum":
+        result = subprocess.run(
+            [str(environment.adapter), "export-wallet", role],
+            env=environment.environment(),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode:
+            raise LocalnetError(
+                "Cannot export the local Ethereum wallet; check Foundry and local keys"
+            )
+        return json.loads(result.stdout)
+    manifest = read_json(environment.manifest_file)
+    account = manifest["accounts"][role]
+    wallet = {"chain": chain, "address": account["address"]}
+    if chain == "solana":
+        wallet["secret_key"] = read_json(Path(account["key_file"]))
+    else:
+        wallet["private_key"] = read_json(Path(account["key_file"]))["private_key"]
+
+    directory = ROOT / ".localnet" / "wallets"
+    if directory.is_symlink():
+        raise LocalnetError("Wallet export directory must not be a symlink")
+    directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    path = directory / f"{role}.{chain}.json"
+    write_private(path, json.dumps(wallet, indent=2).encode() + b"\n")
+    return {"wallet_file": str(path), "chain": chain, "role": role}
