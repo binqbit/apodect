@@ -44,6 +44,7 @@ async fn run() -> Result<()> {
         std::fs::remove_file(HEALTH_FILE)?;
     }
     let config = Config::from_env()?;
+    apodect_backend::deployment::verify_public(&config).await?;
     let projects = config.projects.clone();
     let pool = database::connect().await.map_err(anyhow::Error::msg)?;
     let store = Store::new(pool.clone());

@@ -2,6 +2,9 @@
 
 use near_contract_standards::fungible_token::FungibleToken;
 use near_contract_standards::fungible_token::core::FungibleTokenCore;
+use near_contract_standards::fungible_token::metadata::{
+    FT_METADATA_SPEC, FungibleTokenMetadata, FungibleTokenMetadataProvider,
+};
 use near_contract_standards::fungible_token::resolver::FungibleTokenResolver;
 use near_contract_standards::storage_management::{
     StorageBalance, StorageBalanceBounds, StorageManagement,
@@ -61,6 +64,21 @@ impl FungibleTokenResolver for TestToken {
     ) -> U128 {
         self.token
             .ft_resolve_transfer(sender_id, receiver_id, amount)
+    }
+}
+
+#[near]
+impl FungibleTokenMetadataProvider for TestToken {
+    fn ft_metadata(&self) -> FungibleTokenMetadata {
+        FungibleTokenMetadata {
+            spec: FT_METADATA_SPEC.into(),
+            name: "Local test USDC".into(),
+            symbol: "TEST-USDC".into(),
+            icon: None,
+            reference: None,
+            reference_hash: None,
+            decimals: 6,
+        }
     }
 }
 

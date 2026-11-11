@@ -52,6 +52,7 @@ sol! {
     function authority() external view returns (address);
     function asset() external view returns (address);
     function coordinationDomain() external view returns (bytes32);
+    function coordinatorSigner() external view returns (address);
     function freeBalance() external view returns (uint256);
     function allocatedBalance() external view returns (uint256);
     function heldBalance() external view returns (uint256);
@@ -372,6 +373,42 @@ impl Ethereum {
             "project token custody is below attributed balances"
         );
         Ok(snapshot)
+    }
+
+    pub async fn coordinator_signer(
+        &self,
+        project: Address,
+        block: &FinalizedBlock,
+    ) -> Result<Address> {
+        self.read(project, coordinatorSignerCall {}, block).await
+    }
+
+    pub async fn verify_creation_block(&self, project: Address, height: u64) -> Result<()> {
+        ensure!(
+            height > 0,
+            "Ethereum Project creation block must be positive"
+        );
+        let block = self.finalized_block_at(height).await?;
+        let previous = self.finalized_block_at(height - 1).await?;
+        let code: Bytes = self
+            .rpc
+            .call(
+                "eth_getCode",
+                &json!([project, {"blockHash":block.hash,"requireCanonical":true}]),
+            )
+            .await?;
+        let before: Bytes = self
+            .rpc
+            .call(
+                "eth_getCode",
+                &json!([project, {"blockHash":previous.hash,"requireCanonical":true}]),
+            )
+            .await?;
+        ensure!(
+            !code.is_empty() && before.is_empty(),
+            "Configured Ethereum start block is not the Project creation block"
+        );
+        Ok(())
     }
 
     pub async fn task(

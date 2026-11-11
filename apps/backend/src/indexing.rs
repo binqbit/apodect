@@ -156,27 +156,7 @@ impl Indexer {
                 .near
                 .coordinator_domain(&project.coordinator, &configured.domain, &block)
                 .await?;
-            ensure!(
-                word(&domain.domain)? == word(&configured.domain)?
-                    && domain.chain == chain.to_string(),
-                "Coordinator domain identity mismatch"
-            );
-            ensure!(
-                same_address(*chain, &domain.vault, &configured.vault)?
-                    && same_address(*chain, &domain.asset, &configured.asset)?,
-                "Coordinator domain custody differs from configuration"
-            );
-            if *chain == Chain::Solana {
-                ensure!(
-                    domain.program.as_deref().map(word).transpose()?
-                        == Some(apodect_solana::ID.to_bytes()),
-                    "Coordinator Solana program mismatch"
-                );
-            }
-            ensure!(
-                domain.available == domain.free.saturating_sub(domain.pending_reserves),
-                "Coordinator available balance is inconsistent"
-            );
+            validate_domain_binding(*chain, configured, &domain)?;
             domains.insert(*chain, domain);
         }
 
@@ -874,6 +854,33 @@ fn check_position(previous: u64, previous_hash: &str, next: u64, next_hash: &str
     ensure!(
         next != previous || previous_hash == next_hash,
         "Conflicting finalized block hashes"
+    );
+    Ok(())
+}
+
+pub(crate) fn validate_domain_binding(
+    chain: Chain,
+    configured: &crate::config::DomainConfig,
+    domain: &CoordinatorDomain,
+) -> Result<()> {
+    ensure!(
+        word(&domain.domain)? == word(&configured.domain)? && domain.chain == chain.to_string(),
+        "Coordinator domain identity mismatch"
+    );
+    ensure!(
+        same_address(chain, &domain.vault, &configured.vault)?
+            && same_address(chain, &domain.asset, &configured.asset)?,
+        "Coordinator domain custody differs from configuration"
+    );
+    if chain == Chain::Solana {
+        ensure!(
+            domain.program.as_deref().map(word).transpose()? == Some(apodect_solana::ID.to_bytes()),
+            "Coordinator Solana program mismatch; rebuild the program and backend for the same release ID"
+        );
+    }
+    ensure!(
+        domain.available == domain.free.saturating_sub(domain.pending_reserves),
+        "Coordinator available balance is inconsistent"
     );
     Ok(())
 }

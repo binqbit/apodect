@@ -1,0 +1,73 @@
+{
+  "ethereum": {
+    "rpc_url": "https://REPLACE_WITH_YOUR_ETHEREUM_RPC",
+    "chain_id": 1,
+    "genesis_hash": "0xd4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3"
+  },
+  "solana": {
+    "rpc_url": "https://REPLACE_WITH_YOUR_SOLANA_RPC",
+    "genesis_hash": "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d"
+  },
+  "near": {
+    "rpc_url": "https://REPLACE_WITH_YOUR_NEAR_RPC",
+    "genesis": {
+      "chain_id": "mainnet",
+      "genesis_time": "2020-07-21T16:55:51.591948Z",
+      "genesis_height": 9820210,
+      "validators": [
+        {
+          "account_id": "nfvalidator1.near",
+          "amount": "50000000000000000000000000000",
+          "public_key": "ed25519:14pWWRutZtGFKX4B8q89KVFaUWY1Cqu1JcqYXhCDeFh1"
+        },
+        {
+          "account_id": "nfvalidator2.near",
+          "amount": "50000000000000000000000000000",
+          "public_key": "ed25519:BwZk4bkYJxo79P2vSRw2uk1nfiqEfVkHvr5p8eVsqASC"
+        },
+        {
+          "account_id": "nfvalidator3.near",
+          "amount": "50000000000000000000000000000",
+          "public_key": "ed25519:DMz11tmPvhdqpi7CzP2JULeeSE8SxYRD8pys5nKke4FS"
+        },
+        {
+          "account_id": "nfvalidator4.near",
+          "amount": "50000000000000000000000000000",
+          "public_key": "ed25519:Fi3CQDHJoviKazVR27YmfFzWcFnvmoPBKEDd9ouq5Tjx"
+        }
+      ]
+    }
+  },
+  "projects": [
+    {
+      "coordinator": "REPLACE_WITH_COORDINATOR_ACCOUNT",
+      "project_id": "REPLACE_WITH_64_HEX_DIGITS",
+      "ethereum_start_block": 0,
+      "domains": {
+        "ethereum": {
+          "domain": "REPLACE_WITH_ETHEREUM_DOMAIN_64_HEX_DIGITS",
+          "vault": "REPLACE_WITH_ETHEREUM_PROJECT_ADDRESS",
+          "asset": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+          "asset_id": "nep141:eth-0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48.omft.near"
+        },
+        "solana": {
+          "domain": "REPLACE_WITH_SOLANA_DOMAIN_64_HEX_DIGITS",
+          "vault": "REPLACE_WITH_SOLANA_PROJECT_PDA",
+          "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          "asset_id": "nep141:sol-5ce3bf3a31af18be40ba30f721101b4341690186.omft.near"
+        },
+        "near": {
+          "domain": "REPLACE_WITH_NEAR_DOMAIN_64_HEX_DIGITS",
+          "vault": "REPLACE_WITH_NEAR_PROJECT_ACCOUNT",
+          "asset": "17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1",
+          "asset_id": "nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1"
+        }
+      }
+    }
+  ],
+  "liquidity": {
+    "url": "https://1click.chaindefuser.com",
+    "local_simulator": false,
+    "api_key_file": null
+  }
+}

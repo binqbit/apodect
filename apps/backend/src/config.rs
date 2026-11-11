@@ -102,9 +102,16 @@ pub struct LiquidityConfig {
 
 impl Config {
     pub fn from_env() -> Result<Self> {
-        Self::read(Path::new(
+        let config = Self::read(Path::new(
             &std::env::var("APODECT_CONFIG").context("APODECT_CONFIG is required")?,
-        ))
+        ))?;
+        if std::env::var("APODECT_REQUIRE_PUBLIC_PROVIDERS").as_deref() == Ok("true") {
+            ensure!(
+                !config.liquidity.local_simulator,
+                "Public deployment cannot use local provider simulators"
+            );
+        }
+        Ok(config)
     }
 
     pub fn read(path: &Path) -> Result<Self> {

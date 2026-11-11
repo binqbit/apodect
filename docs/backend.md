@@ -155,6 +155,14 @@ Localnet exports newly generated gas keys into a separate volume; its owner,
 authority and agent keys stay inside localnet. `APP_ORIGIN` binds wallet messages
 to the application, and public configuration supplies `APODECT_SOLANA_CLUSTER`.
 
+Before public startup, `apodect --check-deployment` checks native network and
+vault identities, command keys, Ethereum's creation block, MPC key domains and
+advertised foreign reads, and the current provider token catalog. It needs only
+`APODECT_CONFIG`, without PostgreSQL, authentication or relayer keys; failures
+produce a nonzero exit status. Read-only admission does not prove actual signing,
+delivery or refunds. See [provider setup](cross-chain-providers.md) for binding
+domains before deployment and the remaining funded acceptance checks.
+
 Run `make check-apps` for formatting, Clippy, Rust tests and the web build.
 Database integration tests require a disposable PostgreSQL database via
 `APODECT_TEST_DATABASE_URL`; the outbox test also uses `APODECT_TEST_KAFKA_BROKERS`. These tests

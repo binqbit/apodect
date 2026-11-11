@@ -24,6 +24,7 @@ pub struct Application {
 impl Application {
     pub async fn connect() -> Result<Self> {
         let config = Config::from_env()?;
+        crate::deployment::verify_public(&config).await?;
         let pool = database::connect().await.map_err(anyhow::Error::msg)?;
         let store = Store::new(pool.clone());
         store.migrate().await?;

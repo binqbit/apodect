@@ -19,12 +19,11 @@ account. The foreign-verification key is the separate domain-3 root key.
 [Official implementation guide](https://docs.near.org/chain-abstraction/chain-signatures/implementation),
 [key derivation](https://github.com/near/mpc/blob/3.18.0/crates/near-mpc-crypto-types/src/kdf.rs).
 
-Read-only checks on November 10, 2026 found Solana available but Ethereum absent
-from the advertised foreign-chain sets of `v1.signer` and
-`v1.signer-prod.testnet`. **Public Ethereum inbound evidence remains an unresolved
-integration requirement.** ECDSA signing for Ethereum does not imply support for
-reading Ethereum. Recheck advertised chains, configured networks, code and keys
-before selecting a deployment; do not substitute another chain or trusted backend
+Public admission requires foreign reads for the configured Ethereum and Solana
+networks, in addition to command signing. ECDSA signing for Ethereum does not imply
+support for reading Ethereum. The deployment check verifies the selected service's
+advertised capabilities and keys; unavailable capabilities block public startup.
+Do not substitute another chain or trusted backend for missing Read MPC support
 without changing the agreed trust model.
 [Provider admission](https://github.com/near/mpc/blob/3.18.0/crates/contract/src/api/foreign_chain/support.rs).
 
@@ -89,10 +88,53 @@ storage registration, assets and fees against the selected provider.
 a different integration layer. This is why the local stack uses a delivery
 simulator. [Official FAQ](https://docs.near-intents.org/resources/faqs).
 
-## Before public deployment
+## Register an existing public deployment
 
-Resolve the Ethereum evidence route, connect and verify live signing/delivery
-providers, and configure actual tokens, domains, derived keys and finality.
-Provision native gas/rent/storage and retained evidence history. Establish signer
-and program-authority custody, recovery procedures and review of the exact
-artifacts/configuration. Local acceptance tests alone do not establish these facts.
+Start with [deployment.example.json](deployment.example.json). It contains mainnet
+genesis identities and native USDC addresses from
+[Circle](https://developers.circle.com/stablecoins/usdc-contract-addresses), together
+with the corresponding 1Click asset IDs. Replace every `REPLACE_WITH_...` value
+with your RPC endpoints and deployed contract identities. Set
+`ethereum_start_block` to the exact Project creation block instead of the example's
+zero. Keep `local_simulator` false; admission rechecks the token catalog.
+
+The deployment must already have its coordinator and three vaults bound to the
+same domains and command key. Derive that key for the coordinator account and its
+configured path, and verify the separate Read MPC root key. Record the exact
+release artifacts and retain their native deployment transactions. An incorrect
+immutable binding requires a new deployment.
+
+Before binding, fill in the coordinator, Project ID and native vault/token
+addresses in the configuration. Domain placeholders may remain at this step.
+Run `APODECT_CONFIG=.secrets/deployment.json apodect --deployment-domains` and use
+the returned domains in the configuration, coordinator registration and vault
+bindings. The calculation uses canonical network identities and needs no RPC,
+database or keys. Public admission rejects domains derived for another deployment.
+
+Solana's program ID is compiled into both the program and backend. For a public
+release, select a program keypair under your custody, update `declare_id!` and
+`Anchor.toml`, then rebuild the SBF program and backend from that same source.
+Deploy through the official [Solana deployment tools](https://solana.com/docs/programs/deploying)
+with an explicit upgrade-authority policy. Preloading the development address
+into a local validator does not deploy that address publicly.
+
+Use RPC services that retain finalized transactions and receipts for the lifetime
+of unsettled operations. Ethereum also needs its genesis block and logs from the
+Project creation block. The creation-block check needs historical `eth_getCode`
+at that block and its predecessor, so use an Ethereum endpoint with archive-state
+access. Solana must retain transaction history as well as the
+immutable receipt accounts. A pruned response cannot establish non-execution.
+
+Provision dedicated gas-payer accounts with ETH, SOL and NEAR, including SOL rent,
+NEAR storage and route-receiver deployment costs. Keep owner/manager credentials
+in their own wallets. Confirm NEAR token storage registration for the Project and
+the provider's support for its delivery/refund receivers. Provider fees, source
+finality and authority custody need operational verification.
+
+Run `apodect --check-deployment` against the completed configuration before
+starting services; the [live host guide](application-development.md#live-host)
+shows the Compose command. It is a read-only, database-free check and does not
+load relayer keys or submit transactions. A successful check admits the configured
+interfaces; it does not establish a successful public transfer. Validate a bounded
+funded route, its native delivery, refunds and restart recovery before using the
+deployment for user funds.

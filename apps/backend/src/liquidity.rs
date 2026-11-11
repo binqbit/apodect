@@ -294,7 +294,7 @@ impl Liquidity {
         let candidates = if required == 0 {
             Vec::new()
         } else {
-            self.validate_deployment(&indexer.config, project).await?;
+            self.validate_assets(&indexer.config).await?;
             route_candidates(
                 indexer,
                 project,
@@ -339,7 +339,9 @@ impl Liquidity {
         })
     }
 
-    async fn validate_deployment(&self, config: &Config, project: &ProjectConfig) -> Result<()> {
+    /// Admit configured public assets against one current provider catalog read.
+    /// The explicit local simulator does not use the public catalog or mainnet.
+    pub async fn validate_assets(&self, config: &Config) -> Result<()> {
         if self.local_simulator {
             return Ok(());
         }
@@ -350,8 +352,10 @@ impl Liquidity {
         let tokens = response
             .as_array()
             .context("Provider token catalog must be an array")?;
-        for (chain, binding) in &project.domains {
-            validate_asset(*chain, binding, tokens)?;
+        for project in &config.projects {
+            for (chain, binding) in &project.domains {
+                validate_asset(*chain, binding, tokens)?;
+            }
         }
         Ok(())
     }

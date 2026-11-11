@@ -181,7 +181,23 @@ Stop with the configuration that started the stack before switching to the other
 configuration.
 
 Set `SITE_ADDRESS`, `APODECT_SOLANA_CLUSTER`, the deployment configuration and
-the three gas-payer credential paths in `.env.live`, then start:
+the three gas-payer credential paths in `.env.live`. Copy
+[deployment.example.json](deployment.example.json) to `.secrets/deployment.json`
+if you are registering an existing mainnet deployment; replace its marked values
+and zero creation block following the [provider setup](cross-chain-providers.md#register-an-existing-public-deployment).
+The file contains RPC URLs, so keep it private when they include provider tokens.
+
+Build the release images and check the public bindings before starting:
+
+```sh
+docker compose --env-file .env.live -f compose.yaml -f compose.live.yaml build
+docker compose --env-file .env.live -f compose.yaml -f compose.live.yaml \
+  run --rm --no-deps backend apodect --check-deployment
+```
+
+This check returns JSON and exits unsuccessfully when the deployment cannot be
+admitted. It uses no database or gas-payer keys and sends no transactions. Fix the
+reported configuration or provider capability before starting the stack:
 
 ```sh
 docker compose --env-file .env.live -f compose.yaml -f compose.live.yaml \
@@ -192,9 +208,9 @@ Caddy serves the built frontend over HTTPS and forwards `/api` to the compiled
 Rust backend. PostgreSQL, Kafka and the backend have no published ports. The
 override removes the localnet service, development mounts and backend watcher;
 it does not deploy local test chains or simulated providers on the live host.
-Public deployments also require the provider capabilities described in
-[cross-chain providers](cross-chain-providers.md); a local MPC simulator does
-not establish public Read MPC admission. This is a single-host deployment,
+The API and worker also verify public deployment admission at startup, and the
+live profile rejects configurations selecting local provider simulators. A local
+MPC simulator does not establish public Read MPC admission. This is a single-host deployment,
 without high availability. Kafka's combined
 broker/controller setup is unsuitable for critical deployments requiring redundancy.
 

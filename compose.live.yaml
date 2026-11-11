@@ -24,6 +24,7 @@ services:
     ports: !reset []
     environment:
       APODECT_CONFIG: /run/secrets/deployment_config
+      APODECT_REQUIRE_PUBLIC_PROVIDERS: "true"
       APP_ORIGIN: https://${SITE_ADDRESS:?Set SITE_ADDRESS to your public hostname}
       APODECT_SOLANA_CLUSTER: ${APODECT_SOLANA_CLUSTER:?Set the Solana cluster (mainnet, testnet or devnet)}
     volumes: !reset []
@@ -48,6 +49,7 @@ services:
     develop: !reset null
     environment:
       APODECT_CONFIG: /run/secrets/deployment_config
+      APODECT_REQUIRE_PUBLIC_PROVIDERS: "true"
       APODECT_ETHEREUM_RELAYER_KEY_FILE: /run/secrets/ethereum_relayer
       APODECT_SOLANA_RELAYER_KEY_FILE: /run/secrets/solana_relayer
       APODECT_NEAR_RELAYER_KEY_FILE: /run/secrets/near_relayer
