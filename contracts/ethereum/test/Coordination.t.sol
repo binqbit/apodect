@@ -252,7 +252,12 @@ contract CoordinationTest is Test {
     function testFullDeliveryWaitsForPartialAndNeverCreditsDonationsTwice() public {
         (uint256 task, uint256 request) = _create(60);
         _reserve(PLAN, 0);
+        address predicted = vault.predictRouteAddress(ROUTE, false);
+        assertNotEq(predicted, vault.predictRouteAddress(ROUTE, true));
+        assertEq(vault.getRoute(ROUTE, false).escrow, address(0));
         _execute(_command(C.Action.ExpectDelivery, PLAN, 0, 0, 60, ROUTE));
+        assertEq(vault.getRoute(ROUTE, false).escrow, predicted);
+        assertEq(vault.predictRouteAddress(ROUTE, false), predicted);
         vm.prank(provider);
         token.transfer(address(vault), 999);
         assertEq(vault.accountedBalance(), 0);

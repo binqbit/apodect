@@ -667,7 +667,7 @@ contract ProjectVault is ProjectDefinitions, ReentrancyGuard {
         if (route.escrow != address(0)) revert InvalidRoute();
         route.plan = c.related;
         route.expected = c.amount;
-        route.escrow = address(new RouteEscrow{ salt: keccak256(abi.encode(c.ref, refund)) }(asset));
+        route.escrow = address(new RouteEscrow{ salt: _routeSalt(c.ref, refund) }(asset));
         emit RouteRegistered(c.ref, refund, c.related, route.escrow, c.amount);
     }
 
@@ -744,6 +744,20 @@ contract ProjectVault is ProjectDefinitions, ReentrancyGuard {
 
     function getRoute(bytes32 routeId, bool refund) external view returns (C.Route memory) {
         return refund ? _refunds[routeId] : _deliveries[routeId];
+    }
+
+    /// @notice The exact token receiver for a route, including before its registration.
+    function predictRouteAddress(bytes32 routeId, bool refund) external view returns (address) {
+        bytes32 initCodeHash =
+            keccak256(abi.encodePacked(type(RouteEscrow).creationCode, abi.encode(asset)));
+        bytes32 digest = keccak256(
+            abi.encodePacked(bytes1(0xff), address(this), _routeSalt(routeId, refund), initCodeHash)
+        );
+        return address(uint160(uint256(digest)));
+    }
+
+    function _routeSalt(bytes32 routeId, bool refund) private pure returns (bytes32) {
+        return keccak256(abi.encode(routeId, refund));
     }
 
     function getCommandOutcome(bytes32 operation) external view returns (C.Outcome memory) {

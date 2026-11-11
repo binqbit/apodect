@@ -212,26 +212,14 @@ class EthereumBridge:
     def route_address(self, request):
         route = word(request["route_id"])
         refund = self.refund(request)
-        salt = run(
-            "cast",
-            "keccak",
-            run(
-                "cast", "abi-encode", "route(bytes32,bool)", route, str(refund).lower()
-            ),
-        )
-        creation = self.local.artifact("escrow")["bytecode"]["object"]
-        creation += run("cast", "abi-encode", "constructor(address)", self.token)[2:]
-        init_hash = run("cast", "keccak", creation)
-        address = (
-            "0x"
-            + run(
-                "cast",
-                "keccak",
-                "0xff" + request["project"][2:] + salt[2:] + init_hash[2:],
-            )[-40:]
-        )
+        address = self.local.values(
+            request["project"],
+            "predictRouteAddress(bytes32,bool)",
+            route,
+            str(refund).lower(),
+        )[0]
         return {
-            "escrow_address": address,
+            "escrow_address": f"0x{address:040x}",
             "route_id": route,
             "kind": "refund" if refund else "delivery",
         }
