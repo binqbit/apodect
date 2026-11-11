@@ -39,18 +39,18 @@ def export_runtime(network):
     genesis = network.near.rpc("genesis_config", {})
     configuration = {
         "ethereum": {
-            "rpc_url": f"http://{host}:8545",
+            "rpc_url": f"http://{host}:{network.chains['ethereum'].environment.ports()['rpc']}",
             "chain_id": int(network.chains["ethereum"].rpc("eth_chainId", []), 16),
             "genesis_hash": network.chains["ethereum"].rpc(
                 "eth_getBlockByNumber", ["0x0", False]
             )["hash"],
         },
         "solana": {
-            "rpc_url": f"http://{host}:8899",
+            "rpc_url": f"http://{host}:{network.chains['solana'].environment.ports()['rpc']}",
             "genesis_hash": network.chains["solana"].rpc("getGenesisHash", []),
         },
         "near": {
-            "rpc_url": f"http://{host}:3030",
+            "rpc_url": f"http://{host}:{network.chains['near'].environment.ports()['rpc']}",
             "genesis": {
                 key: genesis[key]
                 for key in ("chain_id", "genesis_time", "genesis_height", "validators")

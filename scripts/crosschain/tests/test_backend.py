@@ -37,6 +37,9 @@ class BackendRuntimeTests(unittest.TestCase):
                     "address": f"relay-{name}",
                     "key_file": str(keys[name]),
                 }
+                chain.environment.ports.return_value = {
+                    "rpc": {"ethereum": 28545, "solana": 28899, "near": 23030}[name]
+                }
                 chains[name] = chain
             chains["ethereum"].rpc.side_effect = ["0x7a69", {"hash": "evm-genesis"}]
             ethereum_manifest = root / "ethereum-manifest.json"
@@ -84,7 +87,8 @@ class BackendRuntimeTests(unittest.TestCase):
             self.assertNotIn("MUST_NOT_BE_EXPORTED", configuration)
             self.assertNotIn("private_key", configuration)
             self.assertEqual(
-                json.loads(configuration)["ethereum"]["rpc_url"], "http://localnet:8545"
+                json.loads(configuration)["ethereum"]["rpc_url"],
+                "http://localnet:28545",
             )
             self.assertEqual(
                 json.loads(configuration)["projects"][0]["ethereum_start_block"], 42
