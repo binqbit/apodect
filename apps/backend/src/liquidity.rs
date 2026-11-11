@@ -30,6 +30,10 @@ const ONE_CLICK_KEY: &str = "reYaWhvwu8Jzo3WUM3zhn6VrhuMEF4eADL17qtRVifc";
 const ETHEREUM_MAINNET_GENESIS: &str =
     "d4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3";
 const SOLANA_MAINNET_GENESIS: &str = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d";
+// Native mainnet USDC identities published by Circle, independent of provider symbols.
+const ETHEREUM_USDC: &str = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
+const SOLANA_USDC: &str = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+const NEAR_USDC: &str = "17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1";
 
 pub struct Liquidity {
     client: Client,
@@ -457,6 +461,16 @@ fn validate_mainnet(config: &Config) -> Result<()> {
 }
 
 fn validate_asset(chain: Chain, binding: &DomainConfig, tokens: &[Value]) -> Result<()> {
+    let (blockchain, native_usdc) = match chain {
+        Chain::Ethereum => ("eth", ETHEREUM_USDC),
+        Chain::Solana => ("sol", SOLANA_USDC),
+        Chain::Near => ("near", NEAR_USDC),
+    };
+    let native_usdc = recipient_identity(chain, native_usdc)?;
+    ensure!(
+        recipient_identity(chain, &binding.asset)? == native_usdc,
+        "Public liquidity supports only the native mainnet USDC token"
+    );
     let mut matches = tokens
         .iter()
         .filter(|token| token["assetId"] == binding.asset_id);
@@ -467,19 +481,14 @@ fn validate_asset(chain: Chain, binding: &DomainConfig, tokens: &[Value]) -> Res
         matches.next().is_none(),
         "Ambiguous provider asset identity"
     );
-    let blockchain = match chain {
-        Chain::Ethereum => "eth",
-        Chain::Solana => "sol",
-        Chain::Near => "near",
-    };
     let address = token["contractAddress"]
         .as_str()
         .context("Provider asset has no native contract address")?;
     ensure!(
         token["blockchain"] == blockchain
             && token["decimals"] == 6
-            && recipient_identity(chain, address)? == recipient_identity(chain, &binding.asset)?,
-        "Provider asset does not match the Project's six-decimal native token"
+            && recipient_identity(chain, address)? == native_usdc,
+        "Provider asset does not match the Project's six-decimal native USDC token"
     );
     Ok(())
 }
@@ -998,8 +1007,8 @@ mod tests {
         let binding = DomainConfig {
             domain: "01".repeat(32),
             vault: "vault.near".into(),
-            asset: "usdc.near".into(),
-            asset_id: "nep141:usdc.near".into(),
+            asset: NEAR_USDC.into(),
+            asset_id: format!("nep141:{NEAR_USDC}"),
         };
         let token = json!({"assetId":binding.asset_id,"blockchain":"near","decimals":6,"contractAddress":binding.asset});
         validate_asset(Chain::Near, &binding, std::slice::from_ref(&token)).unwrap();
@@ -1012,6 +1021,39 @@ mod tests {
             let mut wrong = token.clone();
             wrong[field] = value;
             assert!(validate_asset(Chain::Near, &binding, &[wrong]).is_err());
+        }
+        for (chain, blockchain, usdc, usdt) in [
+            (
+                Chain::Ethereum,
+                "eth",
+                ETHEREUM_USDC,
+                "0xdac17f958d2ee523a2206206994597c13d831ec7",
+            ),
+            (
+                Chain::Solana,
+                "sol",
+                SOLANA_USDC,
+                "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
+            ),
+            (Chain::Near, "near", NEAR_USDC, "usdt.tether-token.near"),
+        ] {
+            let mut binding = DomainConfig {
+                domain: "01".repeat(32),
+                vault: "unused".into(),
+                asset: usdc.into(),
+                asset_id: "provider-native-asset".into(),
+            };
+            let catalog = json!({"assetId":binding.asset_id,"blockchain":blockchain,
+                "decimals":6,"symbol":"USDC","contractAddress":if chain == Chain::Ethereum { usdc.to_ascii_lowercase() } else { usdc.into() }});
+            validate_asset(chain, &binding, &[catalog]).unwrap();
+
+            binding.asset = usdt.into();
+            let catalog = json!({"assetId":binding.asset_id,"blockchain":blockchain,
+                "decimals":6,"symbol":"USDC","contractAddress":usdt});
+            assert!(
+                validate_asset(chain, &binding, &[catalog]).is_err(),
+                "a matching six-decimal catalog entry and misleading symbol cannot admit USDT"
+            );
         }
         let mut config: Config = serde_json::from_value(json!({
             "ethereum":{"rpc_url":"https://ethereum.invalid","chain_id":1,"genesis_hash":ETHEREUM_MAINNET_GENESIS},

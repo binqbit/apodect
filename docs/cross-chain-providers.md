@@ -55,7 +55,7 @@ amounts and expiry before Apply. Provider status reports progress; only attribut
 native receipts authorize accounting changes.
 
 The Rust public adapter verifies the provider's Ed25519 quote signature, binds
-the selected asset IDs to native addresses and six-decimal tokens in the
+the selected asset IDs to the native six-decimal USDC addresses in the
 supported-token catalog, and admits only the provider's mainnet networks.
 Quotes requiring a dispatch memo are rejected by the current vault integration.
 These checks do not prove public route execution or MPC admission.

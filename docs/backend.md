@@ -143,8 +143,8 @@ so receipt discovery begins at the deployment rather than Ethereum genesis.
 Local bootstrap generates it. Public deployments supply it explicitly along
 with the provider URL and optional API-key file. Public quotes requiring a
 deposit memo are rejected because the current vault dispatch cannot carry one.
-Public 1Click routing requires mainnet identities and matches every configured
-asset against the provider's native contract address, chain and six decimals.
+Public 1Click routing requires mainnet identities and the native USDC contract
+or mint in each chain, matched against the provider catalog and six decimals.
 Quote signatures are verified with the production key published by the
 [official SDK](https://github.com/defuse-protocol/one-click-sdk-typescript/blob/ae8b24e064785c8cba8081263e03e52fed4de089/src/quote-signature.ts)
 before execution terms are accepted. A provider key rotation requires updating
