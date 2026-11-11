@@ -26,4 +26,26 @@ fi
 forge soldeer install --config-location soldeer
 forge fmt --check
 forge build --sizes --skip test --skip script
+
+# Enforce production limits independently of test VM settings. Forge's size table
+# omits constructor arguments; these fixed constructors are all static ABI words.
+python3 - <<'PYTHON'
+import json
+from pathlib import Path
+
+constructors = {"ProjectVault": 96, "WorkspaceRegistry": 32, "RouteEscrow": 32}
+for name, constructor_bytes in constructors.items():
+    artifact = json.loads(Path(f"out/{name}.sol/{name}.json").read_text())
+    runtime = len(bytes.fromhex(artifact["deployedBytecode"]["object"][2:]))
+    initcode = len(bytes.fromhex(artifact["bytecode"]["object"][2:])) + constructor_bytes
+    if runtime > 24_576 or initcode > 49_152:
+        raise SystemExit(
+            f"{name} exceeds EVM deployment limits: runtime={runtime}, initcode={initcode}"
+        )
+    print(
+        f"{name} deployment limits passed: runtime={runtime}/24576, "
+        f"initcode={initcode}/49152 bytes"
+    )
+PYTHON
+
 forge test "$@"

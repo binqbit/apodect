@@ -49,7 +49,8 @@ contract WorkspaceRolesTest is ProjectVaultTestBase {
         }
 
         // A second task agent cannot operate the first agent's task or claim its allocation.
-        _create(other, 1);
+        (uint256 otherTaskId,) = _create(other, 1);
+        assertEq(vault.getTask(otherTaskId).agent, other);
         bytes[] memory agentCalls = new bytes[](5);
         agentCalls[0] = abi.encodeCall(ProjectVault.requestBudget, (taskId, 1, PURPOSE));
         agentCalls[1] = abi.encodeCall(ProjectVault.withdraw, (taskId, 1));
@@ -67,36 +68,6 @@ contract WorkspaceRolesTest is ProjectVaultTestBase {
         assertEq(vault.authority(), authority);
         assertEq(vault.getTask(taskId).available, 20);
         assertEq(vault.allocatedBalance(), 20);
-    }
-
-    function testOpenSubmissionAndRoleSeparation() public {
-        (uint256 taskId, uint256 requestId) = _create(other, 10);
-
-        assertEq(vault.getTask(taskId).agent, other);
-
-        vm.expectRevert(ProjectDefinitions.Unauthorized.selector);
-        vm.prank(owner);
-        vault.approveRequest(requestId);
-
-        vm.expectRevert(ProjectDefinitions.Unauthorized.selector);
-        vm.prank(authority);
-        vault.pause(taskId);
-
-        vm.expectRevert(ProjectDefinitions.Unauthorized.selector);
-        vm.prank(agent);
-        vault.requestBudget(taskId, 20, PURPOSE);
-
-        vm.expectRevert(ProjectDefinitions.Unauthorized.selector);
-        vm.prank(agent);
-        vault.returnFunds(taskId, 1);
-
-        vm.expectRevert(ProjectDefinitions.Unauthorized.selector);
-        vm.prank(other);
-        vault.fund(1, 0);
-
-        vm.expectRevert(ProjectDefinitions.Unauthorized.selector);
-        vm.prank(owner);
-        vault.applyNext();
     }
 
     function testWorkspaceNoncesAndProjectCustodyAreSeparate() public {
