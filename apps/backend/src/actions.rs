@@ -6,7 +6,9 @@ mod coordinator;
 mod local;
 
 pub use coordinator::{CoordinatorAction, TaskControl};
-pub use local::{EthereumCall, LocalAction, SolanaAccount, SolanaInstruction};
+pub use local::{
+    EthereumCall, LocalAction, SolanaAccount, SolanaInstruction, TokenAccountCreation,
+};
 
 use crate::{
     accounts::Accounts,
@@ -21,7 +23,7 @@ use anyhow::{Context, Result, ensure};
 use coordinator::{Role, validate_domain};
 use local::{
     ethereum_action, ethereum_approval, near_action, near_call, near_token_registration,
-    solana_action,
+    solana_action, solana_associated_account, solana_create_associated_account,
 };
 use serde::{Deserialize, Serialize};
 
@@ -44,6 +46,8 @@ pub enum UnsignedIntent {
         genesis_hash: String,
         actor: String,
         instructions: Vec<SolanaInstruction>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        token_account_creation: Option<TokenAccountCreation>,
     },
     Near {
         network: near::GenesisIdentity,
@@ -282,13 +286,40 @@ impl<'a> Actions<'a> {
             let workspace = client.read_workspace(project.workspace).await?.value;
             ensure!(workspace.owner == actor, "Actor is not the Project owner");
         }
+
+        let mut instructions = Vec::new();
+        let mut token_account_creation = None;
         let token = if action.uses_token_account() {
-            let address: Pubkey = token_account
-                .context("This action requires the actor's token account")?
-                .parse()?;
-            let balance = client.token_balance(address, actor).await?.value;
-            if let Some(amount) = action.token_ingress() {
-                ensure!(balance >= amount, "Insufficient actor token balance");
+            let automatic =
+                token_account.is_none() && matches!(action, LocalAction::Withdraw { .. });
+            let address = if automatic {
+                solana_associated_account(actor, client.binding().mint)
+            } else {
+                token_account
+                    .context("This action requires the actor's token account")?
+                    .parse()?
+            };
+
+            match client.token_balance(address, actor).await? {
+                Some(balance) => {
+                    if let Some(amount) = action.token_ingress() {
+                        ensure!(balance >= amount, "Insufficient actor token balance");
+                    }
+                }
+                None => {
+                    ensure!(
+                        automatic,
+                        "The supplied Solana token account does not exist"
+                    );
+                    token_account_creation = Some(TokenAccountCreation {
+                        address: address.to_string(),
+                        rent_lamports: client.token_account_rent().await?,
+                    });
+                    instructions.push(solana_create_associated_account(
+                        actor,
+                        client.binding().mint,
+                    ));
+                }
             }
             Some(address)
         } else {
@@ -299,11 +330,19 @@ impl<'a> Actions<'a> {
             None
         };
 
-        let instruction = solana_action(&client, &project, actor, &action, task.as_ref(), token)?;
+        instructions.push(solana_action(
+            &client,
+            &project,
+            actor,
+            &action,
+            task.as_ref(),
+            token,
+        )?);
         Ok(UnsignedIntent::Solana {
             genesis_hash: self.indexer.config.solana.genesis_hash.clone(),
             actor: actor.to_string(),
-            instructions: vec![instruction],
+            instructions,
+            token_account_creation,
         })
     }
 
@@ -409,6 +448,52 @@ mod tests {
     use super::*;
     use base64::{Engine, engine::general_purpose::STANDARD};
     use serde_json::{Value, json};
+
+    #[test]
+    fn solana_withdrawal_account_creation_is_idempotent_and_owned_by_the_actor() {
+        let actor = Pubkey::new_unique();
+        let mint = Pubkey::new_unique();
+        let account = solana_associated_account(actor, mint);
+        let instruction = solana_create_associated_account(actor, mint);
+        assert_eq!(
+            instruction.program_id,
+            "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        );
+        assert_eq!(
+            STANDARD.decode(&instruction.data_base64).unwrap(),
+            [1],
+            "CreateIdempotent allows the ATA to be created while the wallet is reviewing"
+        );
+        let accounts = &instruction.accounts;
+        assert_eq!(accounts.len(), 6);
+        assert_eq!(accounts[0].address, actor.to_string());
+        assert!(accounts[0].signer && accounts[0].writable);
+        assert_eq!(accounts[1].address, account.to_string());
+        assert!(accounts[1].writable && !accounts[1].signer);
+        assert_eq!(accounts[2].address, actor.to_string());
+        assert_eq!(accounts[3].address, mint.to_string());
+        assert_eq!(
+            accounts[4].address,
+            anchor_lang::system_program::ID.to_string()
+        );
+        assert_eq!(
+            accounts[5].address,
+            anchor_spl::token::spl_token::ID.to_string()
+        );
+        assert!(
+            accounts[2..]
+                .iter()
+                .all(|account| !account.signer && !account.writable)
+        );
+        assert_ne!(
+            account,
+            solana_associated_account(Pubkey::new_unique(), mint)
+        );
+        assert_ne!(
+            account,
+            solana_associated_account(actor, Pubkey::new_unique())
+        );
+    }
 
     #[test]
     fn wallet_amounts_and_near_arguments_preserve_integer_precision() {

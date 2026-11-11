@@ -283,18 +283,43 @@ impl Client {
         self.read_required(address, 0).await
     }
 
-    pub async fn token_balance(&self, address: Pubkey, owner: Pubkey) -> Result<Finalized<u64>> {
-        let data = self.token_account_data(address, 0).await?;
-        let token = spl_token::state::Account::unpack(&data.value)
-            .context("Invalid Solana token account")?;
+    pub async fn token_balance(&self, address: Pubkey, owner: Pubkey) -> Result<Option<u64>> {
+        let response = self.account(address, 0).await?;
+        let Some(account) = response.value else {
+            return Ok(None);
+        };
+        let data = account.bytes()?;
+        if account.owner == system_program::ID.to_string() && data.is_empty() && !account.executable
+        {
+            // A prefunded ATA is still uninitialized; idempotent creation handles it.
+            return Ok(None);
+        }
+        ensure!(
+            account.owner == spl_token::ID.to_string() && !account.executable,
+            "Wrong Solana token program"
+        );
+        let token =
+            spl_token::state::Account::unpack(&data).context("Invalid Solana token account")?;
         ensure!(
             token.mint == self.binding.mint && token.owner == owner,
             "Solana token account owner or mint mismatch"
         );
-        Ok(Finalized {
-            slot: data.slot,
-            value: token.amount,
-        })
+        ensure!(
+            token.state == spl_token::state::AccountState::Initialized,
+            "Solana token account is frozen"
+        );
+        Ok(Some(token.amount))
+    }
+
+    pub async fn token_account_rent(&self) -> Result<u64> {
+        self.rpc
+            .call(
+                "getMinimumBalanceForRentExemption",
+                &json!([
+                    spl_token::state::Account::LEN, {"commitment":"finalized"}
+                ]),
+            )
+            .await
     }
 
     /// Task indices begin at zero. A missing record within task_count is an RPC

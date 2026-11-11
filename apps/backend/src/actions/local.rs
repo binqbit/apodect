@@ -13,6 +13,10 @@ use apodect_solana::{accounts, instruction};
 use base64::{Engine, engine::general_purpose::STANDARD};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use spl_associated_token_account_interface::{
+    address::get_associated_token_address_with_program_id,
+    instruction::create_associated_token_account_idempotent,
+};
 
 sol! {
     function createTask(uint256 amount, bytes32 purposeRef) external;
@@ -88,6 +92,45 @@ pub struct SolanaAccount {
     pub address: String,
     pub signer: bool,
     pub writable: bool,
+}
+
+/// The actor funds its own canonical token account in the withdrawal transaction.
+#[derive(Debug, Serialize)]
+pub struct TokenAccountCreation {
+    pub address: String,
+    #[serde(with = "crate::decimal_u64")]
+    pub rent_lamports: u64,
+}
+
+pub(super) fn solana_associated_account(owner: Pubkey, mint: Pubkey) -> Pubkey {
+    let address = get_associated_token_address_with_program_id(
+        &owner.to_bytes().into(),
+        &mint.to_bytes().into(),
+        &spl_token::ID.to_bytes().into(),
+    );
+    Pubkey::new_from_array(address.to_bytes())
+}
+
+pub(super) fn solana_create_associated_account(owner: Pubkey, mint: Pubkey) -> SolanaInstruction {
+    let instruction = create_associated_token_account_idempotent(
+        &owner.to_bytes().into(),
+        &owner.to_bytes().into(),
+        &mint.to_bytes().into(),
+        &spl_token::ID.to_bytes().into(),
+    );
+    SolanaInstruction {
+        program_id: instruction.program_id.to_string(),
+        accounts: instruction
+            .accounts
+            .into_iter()
+            .map(|account| SolanaAccount {
+                address: account.pubkey.to_string(),
+                signer: account.is_signer,
+                writable: account.is_writable,
+            })
+            .collect(),
+        data_base64: STANDARD.encode(instruction.data),
+    }
 }
 
 pub(super) async fn ethereum_approval(

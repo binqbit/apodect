@@ -158,6 +158,84 @@ async fn scan_keeps_zero_indices_and_rejects_foreign_request() {
 }
 
 #[tokio::test]
+async fn withdrawal_account_reads_distinguish_missing_accounts_from_invalid_custody() {
+    use anchor_lang::solana_program::program_option::COption;
+    let owner = Pubkey::new_unique();
+    let mint = Pubkey::new_unique();
+    let address = Pubkey::new_unique();
+    let valid = spl_token::state::Account {
+        mint,
+        owner,
+        amount: 42,
+        delegate: COption::None,
+        state: spl_token::state::AccountState::Initialized,
+        is_native: COption::None,
+        delegated_amount: 0,
+        close_authority: COption::None,
+    };
+    let encode = |token: spl_token::state::Account| {
+        let mut data = vec![0; spl_token::state::Account::LEN];
+        spl_token::state::Account::pack(token, &mut data).unwrap();
+        json!({"owner":spl_token::ID.to_string(),"executable":false,"data":[STANDARD.encode(data),"base64"]})
+    };
+    let valid_account = encode(valid);
+    let mut foreign_owner = valid;
+    foreign_owner.owner = Pubkey::new_unique();
+    let mut foreign_mint = valid;
+    foreign_mint.mint = Pubkey::new_unique();
+    let mut frozen = valid;
+    frozen.state = spl_token::state::AccountState::Frozen;
+    let mut foreign_program = valid_account.clone();
+    foreign_program["owner"] = apodect_solana::ID.to_string().into();
+    let cases = [
+        (Value::Null, Ok(None)),
+        (
+            json!({"owner":system_program::ID.to_string(),"executable":false,"data":["","base64"]}),
+            Ok(None),
+        ),
+        (valid_account, Ok(Some(42))),
+        (encode(foreign_owner), Err(())),
+        (encode(foreign_mint), Err(())),
+        (encode(frozen), Err(())),
+        (foreign_program, Err(())),
+    ];
+    let (rpc, server) = mock_rpc(
+        cases
+            .iter()
+            .map(|(account, _)| {
+                (
+                    "getAccountInfo",
+                    json!({"context":{"slot":10},"value":account}),
+                )
+            })
+            .chain(std::iter::once((
+                "getMinimumBalanceForRentExemption",
+                json!(2_039_280),
+            )))
+            .collect(),
+    );
+    let client = Client::new(
+        rpc,
+        Binding {
+            genesis_hash: "genesis".into(),
+            project: Pubkey::new_unique(),
+            mint,
+            domain: [1; 32],
+        },
+        None,
+    )
+    .unwrap();
+    for (_, expected) in cases {
+        assert_eq!(
+            client.token_balance(address, owner).await.map_err(|_| ()),
+            expected
+        );
+    }
+    assert_eq!(client.token_account_rent().await.unwrap(), 2_039_280);
+    server.join().unwrap();
+}
+
+#[tokio::test]
 async fn unfinalized_failures_remain_pending_and_missing_signatures_remain_unknown() {
     let signature = Signature::from([7; 64]).to_string();
     let (rpc, server) = mock_rpc(vec![

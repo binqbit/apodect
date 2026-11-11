@@ -44,3 +44,4 @@ solana-signer = "=3.0.1"
 solana-signature = "=3.5.2"
 solana-transaction = { version = "=4.3.0", features = ["wincode"] }
 wincode = "=0.6.3"
+spl-associated-token-account-interface = "=2.0.0"

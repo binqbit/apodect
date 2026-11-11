@@ -235,6 +235,7 @@ export type UnsignedIntent =
       chain: "solana";
       genesis_hash: string;
       actor: string;
+      token_account_creation?: { address: string; rent_lamports: string };
       instructions: {
         program_id: string;
         accounts: { address: string; signer: boolean; writable: boolean }[];
