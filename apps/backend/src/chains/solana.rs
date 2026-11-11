@@ -59,7 +59,6 @@ pub struct FinalizedBlock {
 pub struct TaskRecord {
     pub address: Pubkey,
     pub task: Task,
-    pub request: Option<RequestRecord>,
 }
 
 pub struct RequestRecord {
@@ -77,13 +76,11 @@ pub struct TaskPage {
 pub struct RequestPage {
     pub requests: Vec<RequestRecord>,
     pub next_request: u64,
-    pub total: u64,
     pub slot: u64,
 }
 
 pub struct FundingRecord {
     pub id: [u8; 32],
-    pub receipt: Pubkey,
     pub payload: Vec<u8>,
 }
 
@@ -300,23 +297,8 @@ impl Client {
         })
     }
 
-    pub async fn read_request(
-        &self,
-        address: Pubkey,
-        task: Pubkey,
-    ) -> Result<Option<Finalized<BudgetRequest>>> {
-        let request = self.read_optional::<BudgetRequest>(address, 0).await?;
-        if let Some(request) = &request {
-            ensure!(
-                request.value.project == self.binding.project && request.value.task == task,
-                "Request belongs to another Project or task"
-            );
-        }
-        Ok(request)
-    }
-
     /// Task indices begin at zero. A missing record within task_count is an RPC
-    /// consistency error, not a reason to advance the persistent scan cursor.
+    /// consistency error, not a record to skip in the projection.
     pub async fn scan_tasks(&self, start: u64, limit: u64) -> Result<TaskPage> {
         ensure!(
             (1..=100).contains(&limit),
@@ -330,12 +312,7 @@ impl Client {
         let end = start.saturating_add(limit).min(project.value.task_count);
         let keys: Vec<_> = (start..end).map(|index| self.task_address(index)).collect();
         let tasks = self.read_batch::<Task>(&keys, project.slot).await?;
-        let request_keys: Vec<_> = tasks.value.iter().filter_map(|task| task.pending).collect();
-        let requests = self
-            .read_batch::<BudgetRequest>(&request_keys, tasks.slot)
-            .await?;
-        let slot = requests.slot;
-        let mut requests = request_keys.into_iter().zip(requests.value);
+        let slot = tasks.slot;
         let mut records = Vec::with_capacity(tasks.value.len());
 
         for (address, task) in keys.into_iter().zip(tasks.value) {
@@ -343,26 +320,7 @@ impl Client {
                 task.project == self.binding.project,
                 "Foreign task in Solana scan"
             );
-            let request = if let Some(pending) = task.pending {
-                let (key, request) = requests.next().context("Missing pending Solana request")?;
-                ensure!(
-                    key == pending
-                        && request.project == self.binding.project
-                        && request.task == address,
-                    "Foreign request in Solana scan"
-                );
-                Some(RequestRecord {
-                    address: key,
-                    request,
-                })
-            } else {
-                None
-            };
-            records.push(TaskRecord {
-                address,
-                task,
-                request,
-            });
+            records.push(TaskRecord { address, task });
         }
 
         Ok(TaskPage {
@@ -406,7 +364,6 @@ impl Client {
         Ok(RequestPage {
             requests,
             next_request: end,
-            total: state.value.request_count,
             slot: records.slot,
         })
     }
@@ -457,7 +414,6 @@ impl Client {
             )?;
             records.push(FundingRecord {
                 id,
-                receipt,
                 payload: data[8..].to_vec(),
             });
         }

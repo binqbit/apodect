@@ -119,8 +119,12 @@ async fn scan_keeps_zero_indices_and_rejects_foreign_request() {
                 json!({"context":{"slot":11},"value":[account(&task_state)]}),
             ),
             (
+                "getAccountInfo",
+                json!({"context":{"slot":12},"value":account(&task_state)}),
+            ),
+            (
                 "getMultipleAccounts",
-                json!({"context":{"slot":12},"value":[account(&request_state)]}),
+                json!({"context":{"slot":13},"value":[account(&request_state)]}),
             ),
         ]);
         let client = Client::new(
@@ -134,17 +138,21 @@ async fn scan_keeps_zero_indices_and_rejects_foreign_request() {
             None,
         )
         .unwrap();
-        let result = client.scan_tasks(0, 10).await;
-        server.join().unwrap();
+        let tasks = client.scan_tasks(0, 10).await.unwrap();
+        assert_eq!(tasks.next_task, 1);
+        assert_eq!(tasks.tasks.len(), 1);
+        assert_eq!(tasks.tasks[0].address, task);
+        assert_eq!(tasks.tasks[0].task.pending, Some(request));
 
+        let result = client.scan_requests(tasks.tasks[0].address, 0, 10).await;
+        server.join().unwrap();
         if foreign {
             assert!(result.is_err());
         } else {
             let page = result.unwrap();
-            assert_eq!(page.next_task, 1);
-            assert_eq!(page.tasks.len(), 1);
-            assert_eq!(page.tasks[0].address, task);
-            assert_eq!(page.tasks[0].request.as_ref().unwrap().address, request);
+            assert_eq!(page.next_request, 1);
+            assert_eq!(page.requests.len(), 1);
+            assert_eq!(page.requests[0].address, request);
         }
     }
 }

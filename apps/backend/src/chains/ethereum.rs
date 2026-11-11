@@ -1,6 +1,6 @@
 use alloy_consensus::{SignableTransaction, TxEip1559};
 use alloy_eips::eip2718::Encodable2718;
-use alloy_primitives::{Address, B256, Bytes, LogData, TxKind, U256, keccak256};
+use alloy_primitives::{Address, B256, Bytes, TxKind, U256, keccak256};
 use alloy_signer::SignerSync;
 use alloy_signer_local::PrivateKeySigner;
 use alloy_sol_types::{SolCall, SolEvent, SolValue, sol};
@@ -52,13 +52,11 @@ sol! {
     function authority() external view returns (address);
     function asset() external view returns (address);
     function coordinationDomain() external view returns (bytes32);
-    function coordinatorSigner() external view returns (address);
     function freeBalance() external view returns (uint256);
     function allocatedBalance() external view returns (uint256);
     function heldBalance() external view returns (uint256);
     function taskCount() external view returns (uint256);
     function requestCount() external view returns (uint256);
-    function fundingSequence() external view returns (uint256);
     function checkpointSequence() external view returns (uint256);
     function balanceOf(address account) external view returns (uint256);
     function allowance(address owner, address spender) external view returns (uint256);
@@ -77,10 +75,6 @@ sol! {
         bytes32 routeId, bool refund, bytes32 operation
     ) external returns (bytes);
 
-    event ProjectCreated(
-        uint256 indexed workspaceId, uint256 indexed projectNonce,
-        address indexed project, address authority
-    );
     event CheckpointRecorded(bytes32 indexed observation, bytes32 indexed domain, bytes payload);
     event FundingRecorded(bytes32 indexed fundingId, bytes32 indexed domain, bytes payload);
 }
@@ -99,14 +93,12 @@ pub struct ProjectSnapshot {
     pub authority: Address,
     pub token: Address,
     pub domain: B256,
-    pub coordinator_signer: Address,
     pub free: U256,
     pub allocated: U256,
     pub held: U256,
     pub token_balance: U256,
     pub task_count: U256,
     pub request_count: U256,
-    pub funding_sequence: U256,
     pub checkpoint_sequence: U256,
 }
 
@@ -121,18 +113,6 @@ pub struct RouteSnapshot {
     pub route: Route,
     pub escrow: Address,
     pub token_balance: U256,
-}
-
-#[derive(Debug, Serialize)]
-pub struct DiscoveredProject {
-    pub workspace_id: U256,
-    pub project_nonce: U256,
-    pub project: Address,
-    pub authority: Address,
-    pub transaction_hash: B256,
-    pub block_hash: B256,
-    pub block_height: u64,
-    pub log_index: u64,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -374,14 +354,12 @@ impl Ethereum {
             authority: self.read(project, authorityCall {}, block).await?,
             token,
             domain: self.read(project, coordinationDomainCall {}, block).await?,
-            coordinator_signer: self.read(project, coordinatorSignerCall {}, block).await?,
             free: self.read(project, freeBalanceCall {}, block).await?,
             allocated: self.read(project, allocatedBalanceCall {}, block).await?,
             held: self.read(project, heldBalanceCall {}, block).await?,
             token_balance: self.balance(token, project, block).await?,
             task_count: self.read(project, taskCountCall {}, block).await?,
             request_count: self.read(project, requestCountCall {}, block).await?,
-            funding_sequence: self.read(project, fundingSequenceCall {}, block).await?,
             checkpoint_sequence: self.read(project, checkpointSequenceCall {}, block).await?,
         };
         let accounted = snapshot
@@ -511,45 +489,6 @@ impl Ethereum {
     ) -> Result<U256> {
         self.read(token, allowanceCall { owner, spender }, block)
             .await
-    }
-
-    /// The caller persists its block cursor after applying the returned discoveries atomically.
-    pub async fn discover_projects(
-        &self,
-        registry: Address,
-        from: u64,
-        through: &FinalizedBlock,
-    ) -> Result<Vec<DiscoveredProject>> {
-        ensure!(
-            from <= through.height && through.height - from < 2_000,
-            "discovery page must contain 1..=2000 blocks"
-        );
-        self.require_canonical(through).await?;
-        let logs: Vec<RpcLog> = self.rpc.call("eth_getLogs", &json!([{
-            "address": registry, "fromBlock": quantity(from), "toBlock": quantity(through.height),
-            "topics": [ProjectCreated::SIGNATURE_HASH],
-        }])).await?;
-        let mut projects = Vec::with_capacity(logs.len());
-        for log in logs {
-            ensure!(
-                log.address == registry && log.height()? >= from && log.height()? <= through.height,
-                "registry log does not match discovery filter"
-            );
-            self.verify_log(&log).await?;
-            let event = ProjectCreated::decode_log_data_validate(&log.log_data()?)?;
-            projects.push(DiscoveredProject {
-                workspace_id: event.workspaceId,
-                project_nonce: event.projectNonce,
-                project: event.project,
-                authority: event.authority,
-                transaction_hash: log.transaction_hash,
-                block_hash: log.block_hash,
-                block_height: log.height()?,
-                log_index: log.index()?,
-            });
-        }
-        self.require_canonical(through).await?;
-        Ok(projects)
     }
 
     /// The database must serialize preparation for this signer. Its persisted nonce floor
@@ -985,9 +924,6 @@ impl RpcLog {
     }
     fn index(&self) -> Result<u64> {
         Ok(u64::try_from(self.log_index)?)
-    }
-    fn log_data(&self) -> Result<LogData> {
-        LogData::new(self.topics.clone(), self.data.clone()).context("invalid event topics")
     }
 }
 

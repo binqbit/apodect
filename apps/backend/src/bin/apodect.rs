@@ -1,5 +1,5 @@
-//! Operational entry point while the web API is designed. JSON arrives on stdin
-//! so session tokens and signed proofs do not appear in process arguments.
+//! Operational JSON interface to the same services as the browser API. Read
+//! stdin so session tokens and signed proofs do not appear in process arguments.
 
 use std::{
     io::{self, Read},
