@@ -5,8 +5,8 @@ mod evidence;
 mod execution;
 
 use apodect_near_protocol::{
-    Command, SignPayload, SignRequest, SignatureResponse, Word, ZERO, action, command_state, hash,
-    hex, number, request_state, uint, unhex, word,
+    Command, MPC_REQUEST_DEPOSIT_YOCTONEAR, SignPayload, SignRequest, SignatureResponse, Word,
+    ZERO, action, command_state, hash, hex, number, request_state, uint, unhex, word,
 };
 use near_sdk::store::{LookupMap, Vector};
 use near_sdk::{
@@ -730,7 +730,7 @@ impl Coordinator {
         let before = env::storage_usage();
         self.commands.get_mut(&op).unwrap().signing = true;
         self.commands.get_mut(&op).unwrap().signature_error = None;
-        let deposit = NearToken::from_millinear(10);
+        let deposit = NearToken::from_yoctonear(MPC_REQUEST_DEPOSIT_YOCTONEAR);
         self.charge(
             before,
             deposit.as_yoctonear() + NearToken::from_millinear(10).as_yoctonear(),

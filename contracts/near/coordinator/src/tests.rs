@@ -765,6 +765,18 @@ fn invalid_provider_callback_clears_signing_lock_and_allows_retry() {
     context("relayer");
     let _ = c.request_signature(hex(&uint(1)));
     assert!(c.commands.get(&uint(1)).unwrap().signing);
+    let provider_deposits: Vec<_> = near_sdk::test_utils::get_created_receipts()
+        .into_iter()
+        .filter(|receipt| receipt.receiver_id == c.mpc_id)
+        .flat_map(|receipt| receipt.actions)
+        .filter_map(|action| match action {
+            near_sdk::mock::MockAction::FunctionCallWeight {
+                attached_deposit, ..
+            } => Some(attached_deposit),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(provider_deposits, [NearToken::from_yoctonear(1)]);
 }
 
 #[test]

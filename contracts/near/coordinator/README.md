@@ -22,6 +22,8 @@ Configure provider identities and verification keys before binding vaults.
 Command signing uses the coordinator's derived signing key; foreign-state
 verification uses the separately pinned Read MPC key. Vault, asset, domain and
 key bindings are fixed, so changed bindings require fresh deployment.
+The MPC 3.18 interface requires one yoctoNEAR per signing or foreign-verification
+request; the caller also funds coordinator storage and callback reserves.
 For integration details, use the [contract definitions](src/lib.rs) and
 [shared provider/protocol types](../protocol/src/lib.rs).
 

@@ -7,6 +7,8 @@ pub type Word = [u8; 32];
 pub const ZERO: Word = [0; 32];
 pub const COMMAND_WORDS: usize = 12;
 pub const COMMAND_BYTES: usize = COMMAND_WORDS * 32;
+// NEAR MPC 3.18.0 requires one yoctoNEAR for sign and foreign verification.
+pub const MPC_REQUEST_DEPOSIT_YOCTONEAR: u128 = 1;
 
 // Names for the fixed numeric wire values. These are constants, so persisted
 // integers and the cross-chain payload encoding retain their existing layout.

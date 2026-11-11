@@ -3,8 +3,9 @@
 use crate::{Coordinator, CoordinatorExt, Evidence, Request, Task, identity};
 use apodect_near_protocol::foreign::{validate_evidence, validate_funding};
 use apodect_near_protocol::{
-    Checkpoint, VerificationResponse, VerifyForeignTransactionRequest, Word, ZERO, action,
-    command_state, hex, number, plan_state, request_state, route_kind, task_state, unhex, word,
+    Checkpoint, MPC_REQUEST_DEPOSIT_YOCTONEAR, VerificationResponse,
+    VerifyForeignTransactionRequest, Word, ZERO, action, command_state, hex, number, plan_state,
+    request_state, route_kind, task_state, unhex, word,
 };
 use near_sdk::{
     AccountId, Gas, NearToken, Promise, env, near, require,
@@ -106,7 +107,7 @@ impl Coordinator {
                 funding: false,
             },
         );
-        let deposit = NearToken::from_millinear(10);
+        let deposit = NearToken::from_yoctonear(MPC_REQUEST_DEPOSIT_YOCTONEAR);
         self.charge(
             before,
             deposit.as_yoctonear() + NearToken::from_millinear(30).as_yoctonear(),
@@ -233,7 +234,7 @@ impl Coordinator {
                 funding: true,
             },
         );
-        let deposit = NearToken::from_millinear(10);
+        let deposit = NearToken::from_yoctonear(MPC_REQUEST_DEPOSIT_YOCTONEAR);
         self.charge(
             before,
             deposit.as_yoctonear() + NearToken::from_millinear(10).as_yoctonear(),
