@@ -7,7 +7,6 @@ import {
   Empty,
   Field,
   Money,
-  Notice,
   Panel,
   ReferenceContent,
   Status,
@@ -35,97 +34,93 @@ export function Funding({
     <>
       <Panel
         title="Project liquidity"
-        description="A deposit credits only confirmed tokens. A withdrawal can use genuinely free project funds."
+        description="Confirmed USDC available for task funding and owner withdrawals."
       >
-        <div
-          className="table-scroll"
-          tabIndex={0}
-          role="region"
-          aria-label="Project liquidity by network"
-        >
-          <table>
-            <thead>
-              <tr>
-                <th>Network</th>
-                <th>Eligible for funding</th>
-                <th>Local free funds</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {project.chains.map((chain) => (
-                <tr key={chain.chain}>
-                  <td>
-                    <ChainBadge chain={chain.chain} />
-                  </td>
-                  <td>
-                    <Money value={chain.available} />
-                  </td>
-                  <td>
-                    {chain.local_free === null ? (
-                      "Not observed"
-                    ) : (
-                      <Money value={chain.local_free} />
-                    )}
-                  </td>
-                  <td>
-                    <div className="row-actions">
-                      {project.roles.local_owners[chain.chain] && (
-                        <button
-                          className="button small"
-                          onClick={() =>
-                            act({ kind: "fund", chain: chain.chain })
-                          }
-                        >
-                          Add funds
-                        </button>
-                      )}
-                      {project.roles.owner && (
-                        <button
-                          className="button small secondary"
-                          disabled={BigInt(chain.available) === 0n}
-                          title={
-                            BigInt(chain.available) === 0n
-                              ? "No eligible funds are available on this network."
-                              : undefined
-                          }
-                          onClick={() =>
-                            act({ kind: "withdraw_free", chain: chain.chain })
-                          }
-                        >
-                          Withdraw free funds
-                        </button>
-                      )}
-                      {!project.roles.local_owners[chain.chain] && (
-                        <Link
-                          className="text-link"
-                          to="/app/account"
-                          state={{ returnTo, chain: chain.chain }}
-                        >
-                          Link {chainNames[chain.chain]} owner wallet to add
-                          funds →
-                        </Link>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="network-balances funding-balances">
+          {project.chains.map((chain) => (
+            <div className="network-balance" key={chain.chain}>
+              <ChainBadge chain={chain.chain} />
+              <strong>
+                <Money value={chain.available} />
+              </strong>
+              <p className="review-note">Available to fund</p>
+              <div className="row-actions">
+                {project.roles.local_owners[chain.chain] && (
+                  <button
+                    className="button small"
+                    onClick={() => act({ kind: "fund", chain: chain.chain })}
+                  >
+                    Add funds
+                  </button>
+                )}
+                {project.roles.owner && (
+                  <button
+                    className="button small secondary"
+                    disabled={BigInt(chain.available) === 0n}
+                    title={
+                      BigInt(chain.available) === 0n
+                        ? "No eligible funds are available on this network."
+                        : undefined
+                    }
+                    onClick={() =>
+                      act({ kind: "withdraw_free", chain: chain.chain })
+                    }
+                  >
+                    Withdraw
+                  </button>
+                )}
+                {!project.roles.local_owners[chain.chain] && (
+                  <Link
+                    className="text-link"
+                    to="/app/account"
+                    state={{ returnTo, chain: chain.chain }}
+                  >
+                    Link owner wallet →
+                  </Link>
+                )}
+              </div>
+            </div>
+          ))}
         </div>
+        <details className="disclosure">
+          <summary>How available funds are calculated</summary>
+          <p className="review-note">
+            Available funds exclude money reserved for tasks or pending
+            transfers. Network balances may differ while confirmations are being
+            processed.
+          </p>
+          <dl className="definition-list">
+            {project.chains.map((chain) => (
+              <div key={chain.chain}>
+                <dt>{chainNames[chain.chain]} local free balance</dt>
+                <dd>
+                  {chain.local_free === null ? (
+                    "Awaiting confirmation"
+                  ) : (
+                    <Money value={chain.local_free} />
+                  )}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        </details>
+        <details className="disclosure">
+          <summary>Transfer costs and owner permissions</summary>
+          <p className="review-note">
+            The project pays transfer costs. Agents receive the full approved
+            amount; a funding shortfall leaves their request waiting.
+          </p>
+          <p className="review-note">
+            Add funds with the owner wallet on that network. Withdrawals require
+            the NEAR owner’s signature and go to the project’s registered owner
+            recipient on the selected network. Review the recipient before
+            signing.
+          </p>
+        </details>
       </Panel>
-      <Notice>
-        Delivery costs come from the project budget. The agent receives its full
-        approved principal; a funding shortfall leaves the request waiting.
-        <p>
-          The local owner wallet deposits USDC. Project withdrawals require the
-          NEAR owner’s signature and send funds to the registered owner
-          recipient on the chosen network.
-        </p>
-      </Notice>
       <Panel
-        title="Replenishment requests"
-        description="Managers request funding from the owner. An owner response closes the request; actual deposits are tracked separately."
+        title="Owner funding requests"
+        description="A manager requests funds; the owner responds and deposits separately. A closed request does not mean funds have arrived."
         action={
           project.roles.authority && (
             <button
@@ -139,7 +134,7 @@ export function Funding({
       >
         {project.invoices.length > 0 && (
           <div className="list-filters">
-            <Field label="Replenishment status">
+            <Field label="Funding request status">
               <select
                 value={status}
                 onChange={(event) => setStatus(event.target.value)}
@@ -155,8 +150,10 @@ export function Funding({
           invoices.map((invoice) => (
             <div key={invoice.id} className="operation-card">
               <div className="operation-title">
-                <h3>Replenishment #{invoice.id}</h3>
-                <Status value={invoice.closed ? "closed" : "awaiting owner"} />
+                <h3>Funding request #{invoice.id}</h3>
+                <Status
+                  value={invoice.closed ? "owner responded" : "awaiting owner"}
+                />
               </div>
               <dl className="definition-list">
                 <div>
@@ -166,7 +163,7 @@ export function Funding({
                   </dd>
                 </div>
                 <div>
-                  <dt>Owner’s intended contribution</dt>
+                  <dt>Owner plans to add</dt>
                   <dd>
                     {invoice.intended === null ? (
                       "No response yet"
@@ -176,7 +173,7 @@ export function Funding({
                   </dd>
                 </div>
                 <div>
-                  <dt>Confirmed linked deposits</dt>
+                  <dt>Received for this request</dt>
                   <dd>
                     <Money value={invoice.actual_funding} />
                   </dd>
@@ -238,8 +235,8 @@ export function Funding({
           <Empty
             title={
               project.invoices.length
-                ? "No replenishment requests match this status"
-                : "No replenishment requests"
+                ? "No funding requests match this status"
+                : "No owner funding requests"
             }
             action={
               project.invoices.length > 0 && (

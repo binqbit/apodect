@@ -16,6 +16,7 @@ import {
   Notice,
   PageTitle,
   Panel,
+  ReferenceContent,
   Status,
   short,
   useLoad,
@@ -78,14 +79,19 @@ export function ProjectPage() {
       {result.error !== undefined && (
         <Notice tone="error">
           Refresh failed. Displaying the last observed state; available balances
-          may have changed.{" "}
-          {result.error instanceof Error ? result.error.message : ""}
+          may have changed.
+          {result.error instanceof Error && (
+            <details className="disclosure">
+              <summary>Refresh error details</summary>
+              <p>{result.error.message}</p>
+            </details>
+          )}
         </Notice>
       )}
       {!project.indexed && (
         <Notice>
-          Some networks are still being indexed. Balances and tasks appear as
-          their finalized observations become available.
+          Network data is incomplete. Balances and tasks may be missing until
+          the remaining networks are confirmed.
         </Notice>
       )}
       <nav className="tabs" aria-label="Project sections">
@@ -141,6 +147,9 @@ function Overview({ project, base }: { project: ProjectDetail; base: string }) {
     (plan) =>
       plan.requires_attention && !["funded", "closed"].includes(plan.status),
   );
+  const openTasks = project.tasks.filter(
+    (task) => !["completed", "canceled"].includes(task.state),
+  );
   return (
     <>
       {attention.length > 0 && (
@@ -158,93 +167,135 @@ function Overview({ project, base }: { project: ProjectDetail; base: string }) {
           </p>
         </Notice>
       )}
-      <div className="stats">
-        <div className="stat">
-          <p>Eligible for funding</p>
+      <div className="stats overview-stats">
+        <div className="stat stat-primary">
+          <p>Available to fund</p>
           <strong>
             <Money value={project.available} unit={false} />
           </strong>
-          <small>USDC · Free after pending reservations</small>
+          <small>USDC · Existing commitments excluded</small>
         </div>
         <div className="stat">
-          <p>Held in funding plans</p>
-          <strong>
-            <Money value={project.held} unit={false} />
-          </strong>
-          <small>USDC · Already occupied</small>
-        </div>
-        <div className="stat">
-          <p>Reservations pending</p>
-          <strong>
-            <Money value={project.pending_reserves} unit={false} />
-          </strong>
-          <small>USDC · Excluded from eligible funds</small>
-        </div>
-        <div className="stat">
-          <p>Agent allocations</p>
+          <p>
+            {project.indexed
+              ? "Allocated to tasks"
+              : "Observed task allocations"}
+          </p>
           <strong>
             <Money value={allocation} unit={false} />
           </strong>
-          <small>USDC · Still controlled by local vaults</small>
+          <small>
+            {project.indexed
+              ? "USDC · Remaining in task vaults"
+              : "USDC · From confirmed networks only"}
+          </small>
+        </div>
+        <div className="stat">
+          <p>{project.indexed ? "Open tasks" : "Observed open tasks"}</p>
+          <strong>{openTasks.length}</strong>
+          <small>
+            {project.indexed
+              ? "Includes tasks waiting for funds or paused"
+              : "Remaining networks are not included yet"}
+          </small>
         </div>
       </div>
       <Panel
-        title="Liquidity across networks"
-        description="Coordinator balances are confirmed observations. Pending operations remain unavailable."
+        title="Funds by network"
+        description="Available USDC after existing commitments."
         action={
           <Link to={`${base}/funding`} className="text-link">
             Manage funds ↗
           </Link>
         }
       >
-        <div
-          className="table-scroll"
-          tabIndex={0}
-          role="region"
-          aria-label="Project liquidity across networks"
-        >
-          <table>
-            <thead>
-              <tr>
-                <th>Network</th>
-                <th>Eligible funds</th>
-                <th>Held</th>
-                <th>Pending reservation</th>
-                <th>Local observation</th>
-              </tr>
-            </thead>
-            <tbody>
-              {project.chains.map((chain) => (
-                <tr key={chain.chain}>
-                  <td>
-                    <ChainBadge chain={chain.chain} />
-                  </td>
-                  <td>
-                    <Money value={chain.available} />
-                  </td>
-                  <td>
-                    <Money value={chain.held} />
-                  </td>
-                  <td>
-                    <Money value={chain.pending_reserves} />
-                  </td>
-                  <td>
-                    {chain.observed_at ? (
-                      <>
-                        <time dateTime={chain.observed_at}>
-                          {new Date(chain.observed_at).toLocaleTimeString()}
-                        </time>
-                        <small>Block / slot {chain.height}</small>
-                      </>
-                    ) : (
-                      "Waiting for indexer"
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="network-balances">
+          {project.chains.map((chain) => (
+            <div className="network-balance" key={chain.chain}>
+              <ChainBadge chain={chain.chain} />
+              <strong>
+                <Money value={chain.available} />
+              </strong>
+              <span className="review-note">
+                {chain.observed_at
+                  ? "Available to fund"
+                  : "Awaiting network data"}
+              </span>
+            </div>
+          ))}
         </div>
+        <details className="disclosure panel-disclosure">
+          <summary>Reservations & balance details</summary>
+          <div className="disclosure-body">
+            <p className="review-note">
+              Held funds and pending reservations cannot fund another request.
+              These are the latest confirmed balances, so transfers in progress
+              may still be awaiting confirmation.
+            </p>
+            <dl className="definition-list">
+              <div>
+                <dt>Held for funding</dt>
+                <dd>
+                  <Money value={project.held} />
+                </dd>
+              </div>
+              <div>
+                <dt>Reservations awaiting confirmation</dt>
+                <dd>
+                  <Money value={project.pending_reserves} />
+                </dd>
+              </div>
+            </dl>
+          </div>
+          <div
+            className="table-scroll"
+            tabIndex={0}
+            role="region"
+            aria-label="Project liquidity across networks"
+          >
+            <table>
+              <thead>
+                <tr>
+                  <th>Network</th>
+                  <th>Available</th>
+                  <th>Held</th>
+                  <th>Pending reservation</th>
+                  <th>Last confirmed</th>
+                </tr>
+              </thead>
+              <tbody>
+                {project.chains.map((chain) => (
+                  <tr key={chain.chain}>
+                    <td>
+                      <ChainBadge chain={chain.chain} />
+                    </td>
+                    <td>
+                      <Money value={chain.available} />
+                    </td>
+                    <td>
+                      <Money value={chain.held} />
+                    </td>
+                    <td>
+                      <Money value={chain.pending_reserves} />
+                    </td>
+                    <td>
+                      {chain.observed_at ? (
+                        <>
+                          <time dateTime={chain.observed_at}>
+                            {new Date(chain.observed_at).toLocaleTimeString()}
+                          </time>
+                          <small>Block / slot {chain.height}</small>
+                        </>
+                      ) : (
+                        "Awaiting network data"
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </details>
       </Panel>
       <div className="split">
         <Panel
@@ -255,53 +306,44 @@ function Overview({ project, base }: { project: ProjectDetail; base: string }) {
             </Link>
           }
         >
-          {project.tasks.some(
-            (task) => !["completed", "canceled"].includes(task.state),
-          ) ? (
-            <div
-              className="table-scroll"
-              tabIndex={0}
-              role="region"
-              aria-label="Open project tasks"
-            >
-              <table>
-                <thead>
-                  <tr>
-                    <th>Task</th>
-                    <th>Network</th>
-                    <th>State</th>
-                    <th>Available</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {project.tasks
-                    .filter(
-                      (task) => !["completed", "canceled"].includes(task.state),
-                    )
-                    .slice(0, 5)
-                    .map((task) => (
-                      <tr key={`${task.chain}:${task.id}`}>
-                        <td>
-                          <Link
-                            to={`${base}/tasks?${new URLSearchParams({ task: task.id, chain: task.chain })}`}
-                            className="text-link"
-                          >
-                            {short(task.id, 5)}
-                          </Link>
-                        </td>
-                        <td>
-                          <ChainBadge chain={task.chain} />
-                        </td>
-                        <td>
-                          <Status value={taskStatus(task)} />
-                        </td>
-                        <td>
-                          <Money value={task.available} />
-                        </td>
-                      </tr>
-                    ))}
-                </tbody>
-              </table>
+          {openTasks.length > 0 ? (
+            <div className="work-list">
+              {openTasks.slice(0, 5).map((task) => {
+                const request = project.requests.find(
+                  (request) =>
+                    request.chain === task.chain && request.task === task.id,
+                );
+                return (
+                  <Link
+                    key={`${task.chain}:${task.id}`}
+                    to={`${base}/tasks?${new URLSearchParams({ task: task.id, chain: task.chain })}`}
+                    className="work-item"
+                  >
+                    <div className="work-item-main">
+                      <strong>
+                        {request ? (
+                          <ReferenceContent
+                            project={project.key}
+                            digest={request.purpose}
+                            label={`Task ${short(task.id, 5)}`}
+                            compact
+                          />
+                        ) : (
+                          `Task ${short(task.id, 5)}`
+                        )}
+                      </strong>
+                      <div className="inline-meta">
+                        <ChainBadge chain={task.chain} />
+                        <Status value={taskStatus(task)} />
+                      </div>
+                    </div>
+                    <div className="work-item-balance">
+                      <Money value={task.available} />
+                      <small>In task vault</small>
+                    </div>
+                  </Link>
+                );
+              })}
             </div>
           ) : (
             <Empty
@@ -324,35 +366,47 @@ function Overview({ project, base }: { project: ProjectDetail; base: string }) {
             </Empty>
           )}
         </Panel>
-        <Panel title="Your project controls">
+        <Panel title="Next steps">
           <div className="panel-body">
-            <dl className="definition-list">
-              <div>
-                <dt>Owner</dt>
-                <dd>
-                  <Address value={project.owner} />
-                </dd>
-              </div>
-              <div>
-                <dt>Manager</dt>
-                <dd>
-                  <Address value={project.authority} />
-                </dd>
-              </div>
-              <div>
-                <dt>Coordination</dt>
-                <dd>NEAR</dd>
-              </div>
-              <div>
-                <dt>Budget asset</dt>
-                <dd>USDC · 6 decimals</dd>
-              </div>
-            </dl>
-            <p className="review-note" style={{ marginTop: 17 }}>
-              Approval establishes priority. Funding happens in that order, for
-              the full amount. Delivery fees are paid separately from the
-              project budget.
-            </p>
+            <div className="next-actions">
+              {project.roles.authority && (
+                <Link to={`${base}/tasks`}>
+                  <strong>
+                    Review budget requests <span aria-hidden="true">→</span>
+                  </strong>
+                  <span>Approve work and start funding in queue order.</span>
+                </Link>
+              )}
+              {(project.roles.owner ||
+                Object.keys(project.roles.local_owners).length > 0) && (
+                <Link to={`${base}/funding`}>
+                  <strong>
+                    Manage project funds <span aria-hidden="true">→</span>
+                  </strong>
+                  <span>Add USDC or review unused funds.</span>
+                </Link>
+              )}
+              <Link to={`${base}/tasks`}>
+                <strong>
+                  Follow task progress <span aria-hidden="true">→</span>
+                </strong>
+                <span>View requests, allocations and available actions.</span>
+              </Link>
+            </div>
+            <details className="disclosure">
+              <summary>How funding works</summary>
+              <p className="review-note">
+                Approval sets the amount and queue position. Funding starts in
+                that order. An agent receives its full approved allocation once
+                funding is confirmed. The project also pays delivery costs.
+              </p>
+            </details>
+            <Link
+              to={`${base}/settings`}
+              className="text-link project-settings-link"
+            >
+              Roles & contract details →
+            </Link>
           </div>
         </Panel>
       </div>
@@ -377,11 +431,15 @@ function Settings({
           <dl className="definition-list">
             <div>
               <dt>Owner · NEAR</dt>
-              <dd>{project.owner}</dd>
+              <dd>
+                <Address value={project.owner} full />
+              </dd>
             </div>
             <div>
-              <dt>Manager · NEAR authority</dt>
-              <dd>{project.authority}</dd>
+              <dt>Manager · NEAR</dt>
+              <dd>
+                <Address value={project.authority} full />
+              </dd>
             </div>
             <div>
               <dt>Recovery attempt limit</dt>
@@ -411,19 +469,24 @@ function Settings({
         description="Verify custody addresses and the last indexed block or slot for each network."
       >
         {project.chains.map((chain) => (
-          <div className="operation-card" key={chain.chain}>
-            <ChainBadge chain={chain.chain} />
-            <dl className="definition-list" style={{ marginTop: 12 }}>
+          <details className="disclosure deployment-details" key={chain.chain}>
+            <summary>
+              <ChainBadge chain={chain.chain} />
+              <span className="disclosure-meta">
+                Addresses & network records
+              </span>
+            </summary>
+            <dl className="definition-list disclosure-body">
               <div>
                 <dt>Project vault</dt>
                 <dd>
-                  <code>{chain.vault}</code>
+                  <Address value={chain.vault} full />
                 </dd>
               </div>
               <div>
                 <dt>USDC token</dt>
                 <dd>
-                  <code>{chain.asset}</code>
+                  <Address value={chain.asset} full />
                 </dd>
               </div>
               <div>
@@ -433,11 +496,15 @@ function Settings({
               <div>
                 <dt>Block reference</dt>
                 <dd>
-                  <code>{chain.block_hash ?? "Not available"}</code>
+                  {chain.block_hash ? (
+                    <Address value={chain.block_hash} full />
+                  ) : (
+                    "Not available"
+                  )}
                 </dd>
               </div>
             </dl>
-          </div>
+          </details>
         ))}
       </Panel>
     </>

@@ -139,115 +139,97 @@ export function Tasks({
   return (
     <>
       <Panel
-        title="Approval-order queue"
-        description="A later request cannot bypass the first waiting request, even if its network already holds funds."
+        title="Funding queue"
+        description="Approved requests enter funding in order. A waiting request cannot be bypassed."
       >
         {queue.length ? (
-          <div
-            className="table-scroll"
-            tabIndex={0}
-            role="region"
-            aria-label="Approval-order queue"
-          >
-            <table>
-              <thead>
-                <tr>
-                  <th>Priority</th>
-                  <th>Network / request</th>
-                  <th>Approved amount</th>
-                  <th>Funding state</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {queue.map((request) => {
-                  const task = project.tasks.find(
-                    (task) =>
-                      task.chain === request.chain && task.id === request.task,
-                  );
-                  const current = currentRequest(task, request);
-                  const control = pendingTaskControl(project, task);
-                  return (
-                    <tr key={`${request.chain}:${request.id}`}>
-                      <td>
-                        {request.queue_head ? (
-                          <span className="role-badge">Next in line</span>
-                        ) : (
-                          `#${(request.approval_position ?? 0) + 1}`
-                        )}
-                      </td>
-                      <td>
-                        <ChainBadge chain={request.chain} />
-                        <small>
-                          <Link
-                            className="text-link"
-                            to={`${base}/tasks?${new URLSearchParams({ chain: request.chain, task: request.task })}`}
-                          >
-                            Task {short(request.task, 6)}
-                          </Link>
-                        </small>
-                        <small>
-                          Request <Address value={request.id} />
-                        </small>
-                      </td>
-                      <td>
-                        <Money value={request.amount} />
-                      </td>
-                      <td>
-                        <Status value={request.status} />
-                      </td>
-                      <td>
-                        {request.queue_head &&
-                          request.status === "queued" &&
-                          project.roles.authority &&
-                          !request.plan &&
-                          current &&
-                          !control && (
-                            <button
-                              className="button small"
-                              onClick={() => act({ kind: "apply", request })}
-                            >
-                              Review funding
-                            </button>
-                          )}
-                        {request.plan && (
-                          <Link
-                            className="text-link"
-                            to={`${base}/activity?${new URLSearchParams({ plan: request.plan })}`}
-                          >
-                            View funding plan →
-                          </Link>
-                        )}
-                        {!request.plan && !current && (
-                          <small>
-                            Waiting for the coordinator to synchronize the
-                            task’s local state.
-                          </small>
-                        )}
-                        {!request.plan && current && control && (
-                          <small>
-                            Waiting for the task’s project control to settle.{" "}
-                            <Link className="text-link" to={`${base}/activity`}>
-                              View activity →
-                            </Link>
-                          </small>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+          <ol className="funding-queue" aria-label="Funding queue">
+            {queue.map((request) => {
+              const task = project.tasks.find(
+                (task) =>
+                  task.chain === request.chain && task.id === request.task,
+              );
+              const current = currentRequest(task, request);
+              const control = pendingTaskControl(project, task);
+              return (
+                <li key={`${request.chain}:${request.id}`}>
+                  <div className="queue-position">
+                    {request.queue_head ? (
+                      <span className="role-badge">Next in line</span>
+                    ) : (
+                      <span className="review-note">
+                        Priority #{(request.approval_position ?? 0) + 1}
+                      </span>
+                    )}
+                    <Status value={request.status} />
+                  </div>
+                  <div className="queue-task">
+                    <ChainBadge chain={request.chain} />
+                    <Link
+                      className="text-link"
+                      to={`${base}/tasks?${new URLSearchParams({ chain: request.chain, task: request.task })}`}
+                    >
+                      <ReferenceContent
+                        project={project.key}
+                        digest={request.purpose}
+                        label={`Task ${short(request.task, 6)}`}
+                        compact
+                      />
+                    </Link>
+                  </div>
+                  <div className="queue-amount">
+                    <small>Approved amount</small>
+                    <Money value={request.amount} />
+                  </div>
+                  <div className="row-actions">
+                    {request.queue_head &&
+                      request.status === "queued" &&
+                      project.roles.authority &&
+                      !request.plan &&
+                      current &&
+                      !control && (
+                        <button
+                          className="button small"
+                          onClick={() => act({ kind: "apply", request })}
+                        >
+                          Review funding
+                        </button>
+                      )}
+                    {request.plan && (
+                      <Link
+                        className="text-link"
+                        to={`${base}/activity?${new URLSearchParams({ plan: request.plan })}`}
+                      >
+                        View funding plan →
+                      </Link>
+                    )}
+                    {!request.plan && !current && (
+                      <small>
+                        Waiting for the latest task update to be confirmed.
+                      </small>
+                    )}
+                    {!request.plan && current && control && (
+                      <small>
+                        Waiting for a task control to finish.{" "}
+                        <Link className="text-link" to={`${base}/activity`}>
+                          View activity →
+                        </Link>
+                      </small>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
+          </ol>
         ) : (
           <Empty title="No requests waiting in the queue">
-            Approvals join this queue in the order they execute on NEAR.
+            A request joins the queue after its approval is confirmed.
           </Empty>
         )}
       </Panel>
       <Panel
         title="Tasks"
-        description="Requests originate on the network where the agent will work."
+        description="Review budgets, follow progress and manage each task on its network."
         action={
           <button
             className="button small secondary"
@@ -401,7 +383,7 @@ function TaskCard({
   return (
     <div key={key}>
       <div className="operation-card">
-        <div className="operation-title">
+        <div className="operation-title task-heading">
           <div>
             <button
               className="expand-button"
@@ -418,14 +400,15 @@ function TaskCard({
                 />
               ) : (
                 `Task ${short(task.id, 6)}`
-              )}{" "}
-              {expanded ? "−" : "+"}
+              )}
+              <span className="expand-indicator" aria-hidden="true">
+                {expanded ? "−" : "+"}
+              </span>
             </button>
             <p style={{ marginTop: 7 }}>
               <ChainBadge chain={task.chain} />{" "}
               <span style={{ marginLeft: 12 }}>
-                Agent <Address value={task.agent} />
-                {task.mine && " · You"}
+                {task.mine ? "Your task" : `Agent ${short(task.agent, 6)}`}
               </span>
             </p>
           </div>
@@ -433,42 +416,18 @@ function TaskCard({
         </div>
         <div className="inline-meta">
           <span>
-            Available <Money value={task.available} />
+            Available allocation <Money value={task.available} />
           </span>
-          <span>
-            Issued <Money value={task.issued} />
-          </span>
+          {BigInt(task.pending_outflow) > 0n && (
+            <span>
+              Withdrawal pending <Money value={task.pending_outflow} />
+            </span>
+          )}
           {task.paused && <span>Owner pause active</span>}
         </div>
       </div>
       {expanded && (
         <div className="task-detail" id={`task-detail-${key}`}>
-          <div className="stats">
-            <div className="stat">
-              <p>Available allocation</p>
-              <strong>
-                <Money value={task.available} />
-              </strong>
-            </div>
-            <div className="stat">
-              <p>Total issued</p>
-              <strong>
-                <Money value={task.issued} />
-              </strong>
-            </div>
-            <div className="stat">
-              <p>Recovered by project</p>
-              <strong>
-                <Money value={task.recovered} />
-              </strong>
-            </div>
-            <div className="stat">
-              <p>Pending withdrawal</p>
-              <strong>
-                <Money value={task.pending_outflow} />
-              </strong>
-            </div>
-          </div>
           {task.paused && !terminal && (
             <Notice>
               Owner pause blocks new withdrawals. Returning and releasing funds
@@ -477,22 +436,22 @@ function TaskCard({
           )}
           {BigInt(task.pending_outflow) > 0n && (
             <Notice>
-              A withdrawal is still being settled. Its amount remains
-              unavailable until the local outcome is confirmed.
+              A withdrawal of <Money value={task.pending_outflow} /> is awaiting
+              confirmation. These funds cannot be used again while it is
+              pending.
             </Notice>
           )}
           {task.state === "stopped" && (
             <Notice>
-              This task stopped after an additional budget request was rejected.
-              The agent can request a new budget to resume through approval and
-              funding. An owner pause remains separate.
+              The additional budget request was rejected. Request a new budget
+              to resume after approval and funding.
             </Notice>
           )}
           {task.state === "out_of_budget" && (
             <Notice>
-              This task cannot receive another allocation. If it was funded,
-              return wallet leftovers and release its remaining allocation
-              before completion. Create a new task for further work.
+              This task cannot receive more funds. Return unused wallet funds
+              and release the remaining allocation before completing it. Further
+              work needs a new task.
             </Notice>
           )}
           {task.mine && !terminal && (
@@ -546,8 +505,8 @@ function TaskCard({
           )}
           {!terminal && control && (
             <Notice>
-              A project control is awaiting chain confirmation. Further project
-              controls and funding approvals wait for it to settle.{" "}
+              A task control is awaiting confirmation. Further controls and
+              funding approvals will be available after it finishes.{" "}
               <Link className="text-link" to={`${base}/activity`}>
                 View activity →
               </Link>
@@ -643,7 +602,14 @@ function TaskCard({
                     <Money value={request.amount} />
                   </strong>
                   <p style={{ marginTop: 5 }}>
-                    {request.kind} request · {short(request.id, 6)}
+                    {
+                      {
+                        initial: "Initial budget",
+                        supplement: "Additional budget",
+                        resume: "Budget to resume",
+                        restoration: "Restore allocation",
+                      }[request.kind]
+                    }
                   </p>
                 </div>
                 <Status value={request.status} />
@@ -653,6 +619,10 @@ function TaskCard({
                 digest={request.purpose}
                 label="Purpose"
               />
+              <details className="disclosure">
+                <summary>Request reference</summary>
+                <Address value={request.id} />
+              </details>
               {request.plan && (
                 <Link
                   className="text-link"
@@ -685,9 +655,8 @@ function TaskCard({
               {["pending", "queued"].includes(request.status) &&
                 !currentRequest(task, request) && (
                   <p className="review-note" style={{ marginTop: 12 }}>
-                    The coordinator is still synchronizing this request’s local
-                    state. It is no longer available for approval or funding in
-                    the latest local observation.
+                    This request is no longer available for approval or funding
+                    on its network. Its displayed status is being updated.
                   </p>
                 )}
             </div>
@@ -699,13 +668,41 @@ function TaskCard({
               label="Completion report"
             />
           )}
-          <details>
+          <details className="disclosure">
             <summary>Task identity and accounting</summary>
+            <dl className="definition-list">
+              <div>
+                <dt>Task ID</dt>
+                <dd>
+                  <Address value={task.id} />
+                </dd>
+              </div>
+              <div>
+                <dt>Agent wallet</dt>
+                <dd>
+                  <Address value={task.agent} />
+                </dd>
+              </div>
+              <div>
+                <dt>Total issued</dt>
+                <dd>
+                  <Money value={task.issued} />
+                </dd>
+              </div>
+              <div>
+                <dt>Recovered by project</dt>
+                <dd>
+                  <Money value={task.recovered} />
+                </dd>
+              </div>
+              <div>
+                <dt>Pending withdrawal</dt>
+                <dd>
+                  <Money value={task.pending_outflow} />
+                </dd>
+              </div>
+            </dl>
             <p className="review-note" style={{ marginTop: 12 }}>
-              Task ID: <code>{task.id}</code>
-              <br />
-              Agent: <code>{task.agent}</code>
-              <br />
               {task.state === "completed"
                 ? `Recorded expense: `
                 : "Issued minus recovered: "}

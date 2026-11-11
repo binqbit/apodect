@@ -220,6 +220,15 @@ summary {
 .panel > .panel-disclosure > .panel-body {
   padding: 8px 0 20px;
 }
+.panel > .deployment-details:first-of-type {
+  border-top: 0;
+}
+.execution-details {
+  margin-bottom: 24px;
+}
+.execution-details > .review-note {
+  margin-bottom: 20px;
+}
 fieldset {
   border: 0;
   margin: 0;
@@ -1027,6 +1036,38 @@ li + li {
   letter-spacing: -0.04em;
   display: block;
 }
+.overview-stats {
+  grid-template-columns: 1.3fr 1.1fr 1fr;
+}
+.stat-primary {
+  border-color: #405a80;
+  background: linear-gradient(135deg, var(--accent-soft), var(--paper));
+}
+.stat-primary > strong {
+  color: var(--accent-hover);
+}
+.network-balances {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.network-balance {
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  min-width: 0;
+}
+.network-balance + .network-balance {
+  border-left: 1px solid var(--line);
+}
+.network-balance > strong {
+  font-size: clamp(1rem, 1.6vw, 1.3rem);
+  max-width: 100%;
+}
+.network-balance > .review-note {
+  margin-top: -6px;
+}
 .stat small {
   font-size: 0.75rem;
   color: var(--muted);
@@ -1198,6 +1239,59 @@ main:focus {
 .table-scroll {
   overflow-x: auto;
 }
+.funding-balances .row-actions {
+  margin-top: 18px;
+}
+.funding-queue {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.funding-queue > li {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr) minmax(120px, 0.65fr) minmax(
+      130px,
+      0.8fr
+    );
+  align-items: center;
+  gap: 24px;
+  padding: 22px 24px;
+}
+.funding-queue > li + li {
+  border-top: 1px solid var(--line);
+}
+.queue-position,
+.queue-task,
+.queue-amount {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+.queue-amount small {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+.queue-task .task-title-text {
+  max-width: none;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 1150px) {
+  .funding-queue > li {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 18px;
+  }
+  .queue-position {
+    grid-column: 1 / -1;
+    flex-direction: row;
+    justify-content: space-between;
+  }
+  .funding-queue .row-actions {
+    grid-column: 1 / -1;
+  }
+}
 .table-scroll .address-control {
   flex-wrap: nowrap;
 }
@@ -1207,6 +1301,73 @@ main:focus {
 }
 .table-scroll .address-value[aria-expanded="true"] {
   white-space: normal;
+}
+.work-item {
+  padding: 20px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  border-bottom: 1px solid var(--line);
+}
+.work-item:last-child {
+  border-bottom: 0;
+}
+.work-item:hover {
+  background: var(--raised);
+}
+.work-item-main {
+  min-width: 0;
+}
+.work-item-main > strong {
+  font-size: 0.875rem;
+  font-weight: 550;
+  display: block;
+  margin-bottom: 10px;
+}
+.work-item .task-title-text {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.work-item-balance {
+  text-align: right;
+  flex-shrink: 0;
+  font-size: 0.875rem;
+}
+.work-item-balance > small {
+  display: block;
+  color: var(--muted);
+  margin-top: 6px;
+  font-size: 0.75rem;
+}
+.next-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+.next-actions a {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  font-size: 0.8125rem;
+}
+.next-actions strong {
+  font-weight: 550;
+}
+.next-actions strong > span {
+  color: var(--accent);
+  margin-left: 8px;
+}
+.next-actions a:hover strong {
+  color: var(--accent);
+}
+.next-actions a > span {
+  color: var(--muted);
+}
+.project-settings-link {
+  margin-top: 18px;
+  color: var(--muted);
+  font-size: 0.8125rem;
 }
 .inline-meta {
   display: flex;
@@ -1539,8 +1700,8 @@ main:focus {
 .operation-title h3 {
   font-size: 0.85rem;
 }
-.operation-card p {
-  font-size: 0.77rem;
+.operation-card > p {
+  font-size: 0.8125rem;
   color: var(--muted);
 }
 .operation-actions {
@@ -1554,23 +1715,26 @@ main:focus {
   border-top: 1px solid var(--line);
   background: var(--inset);
 }
-.task-detail .stats {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
-}
-.task-detail .stat {
-  padding: 14px;
-}
-.task-detail .stat > strong {
-  font-size: 1rem;
-}
 .expand-button {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
   border: 0;
   background: none;
   color: var(--accent);
   text-align: left;
   padding: 0;
   font-weight: 550;
+  min-height: 32px;
+}
+.expand-button .task-title-text {
+  max-width: none;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.expand-indicator {
+  flex-shrink: 0;
 }
 .section-label {
   font-size: 0.75rem;
@@ -1656,6 +1820,9 @@ main:focus {
   }
   .stats {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .overview-stats .stat-primary {
+    grid-column: 1 / -1;
   }
   .account-layout {
     grid-template-columns: minmax(0, 1fr);
@@ -1764,9 +1931,6 @@ main:focus {
   }
   .page-title h1 {
     font-size: 1.75rem;
-  }
-  .task-detail .stats {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .public-footer p {
     display: none;
@@ -1941,6 +2105,49 @@ main:focus {
   .disclosure > summary small {
     flex-basis: 100%;
   }
+  .network-balances {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .network-balance {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 4px 12px;
+    padding: 18px;
+  }
+  .network-balance + .network-balance {
+    border-left: 0;
+    border-top: 1px solid var(--line);
+  }
+  .network-balance > strong {
+    font-size: 1rem;
+    text-align: right;
+  }
+  .network-balance > .review-note {
+    grid-column: 2;
+    text-align: right;
+    margin-top: 0;
+  }
+  .funding-balances .row-actions {
+    grid-column: 1 / -1;
+    margin-top: 12px;
+  }
+  .funding-queue > li {
+    padding: 18px;
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .work-item {
+    padding: 18px;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 14px;
+  }
+  .work-item-balance {
+    text-align: left;
+  }
+  .work-item-balance > small {
+    display: inline;
+    margin-left: 8px;
+  }
   .wallet-options {
     gap: 8px;
   }
@@ -1967,6 +2174,17 @@ main:focus {
   }
   .operation-title {
     align-items: flex-start;
+  }
+  .task-heading {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 12px;
+  }
+  .task-heading > div {
+    display: contents;
+  }
+  .task-heading .expand-button {
+    grid-column: 1 / -1;
   }
   .definition-list > div {
     font-size: 0.75rem;

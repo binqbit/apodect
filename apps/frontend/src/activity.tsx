@@ -101,6 +101,22 @@ export function Activity({
         (operationStatus === "settled" && operation.state === "confirmed")) &&
       matchesSearch(operation.id, operation.transaction_id),
   );
+  const executionIssues =
+    commands.filter(
+      (command) =>
+        command.status === "failed" ||
+        (["pending", "unobserved"].includes(command.status) &&
+          Boolean(command.signature_error)),
+    ).length +
+    operations.filter((operation) =>
+      ["failed", "attention"].includes(operation.state),
+    ).length;
+  const executionDetails = useRef<HTMLDetailsElement>(null);
+  useEffect(() => {
+    if ((executionIssues > 0 || query) && executionDetails.current) {
+      executionDetails.current.open = true;
+    }
+  }, [executionIssues, query]);
   function clearPlan() {
     const next = new URLSearchParams(selected);
     next.delete("plan");
@@ -188,7 +204,7 @@ export function Activity({
       )}
       <Panel
         title="Funding plans"
-        description="Reservation, source execution, destination receipt and final allocation are separate milestones."
+        description="Follow each approved budget from reserved funds to the task’s allocation."
       >
         <div className="list-filters">
           <Field label="Funding plan status">
@@ -251,89 +267,162 @@ export function Activity({
           </Empty>
         )}
       </Panel>
-      <div className="list-filters">
-        <Field label="Command and operation status">
-          <select
-            value={operationStatus}
-            onChange={(event) => setOperationStatus(event.target.value)}
+      <details className="disclosure execution-details" ref={executionDetails}>
+        <summary>
+          Commands & transactions
+          <span className="disclosure-meta">
+            {commands.length + operations.length} records
+            {executionIssues > 0 && ` · ${executionIssues} need attention`}
+          </span>
+        </summary>
+        <p className="review-note">
+          Inspect individual network actions and transaction receipts.
+          Submission is confirmed separately from execution.
+        </p>
+        <div className="list-filters">
+          <Field label="Command and operation status">
+            <select
+              value={operationStatus}
+              onChange={(event) => setOperationStatus(event.target.value)}
+            >
+              <option value="all">All operations</option>
+              <option value="open">In progress</option>
+              <option value="attention">Failed or needs attention</option>
+              <option value="settled">Confirmed or invalidated</option>
+            </select>
+          </Field>
+        </div>
+        {project.commands.length > 0 && (
+          <Panel
+            title="Authorized actions"
+            description="Each command allows a specific action on its destination network."
           >
-            <option value="all">All operations</option>
-            <option value="open">In progress</option>
-            <option value="attention">Failed or needs attention</option>
-            <option value="settled">Confirmed or invalidated</option>
-          </select>
-        </Field>
-      </div>
-      {project.commands.length > 0 && (
+            {commands.length ? (
+              <div
+                className="table-scroll"
+                tabIndex={0}
+                role="region"
+                aria-label="Coordinator commands"
+              >
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Command</th>
+                      <th>Network</th>
+                      <th>State</th>
+                      <th />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {commands.map((command) => (
+                      <tr key={command.id}>
+                        <td>
+                          {command.action.replaceAll("_", " ")}
+                          <small>
+                            <Address value={command.id} />
+                          </small>
+                          {command.signature_error && (
+                            <small>
+                              {["succeeded", "invalidated"].includes(
+                                command.status,
+                              ) && "Previous signing error: "}
+                              {command.signature_error}
+                            </small>
+                          )}
+                          {project.plans.some(
+                            (plan) => plan.id === command.plan,
+                          ) && (
+                            <small>
+                              <Link
+                                className="text-link"
+                                to={`${base}/activity?${new URLSearchParams({ plan: command.plan })}`}
+                              >
+                                View funding plan →
+                              </Link>
+                            </small>
+                          )}
+                        </td>
+                        <td>
+                          <ChainBadge chain={command.chain} />
+                        </td>
+                        <td>
+                          <Status value={command.status} />
+                        </td>
+                        <td>
+                          {(project.roles.owner || project.roles.authority) &&
+                            ["pending", "unobserved"].includes(
+                              command.status,
+                            ) && (
+                              <button
+                                className="button secondary small"
+                                onClick={() =>
+                                  act({ kind: "invalidate", command })
+                                }
+                              >
+                                Invalidate command
+                              </button>
+                            )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <Empty
+                title="No commands match these filters"
+                action={
+                  <button
+                    className="button secondary small"
+                    onClick={resetFilters}
+                  >
+                    Clear filters
+                  </button>
+                }
+              />
+            )}
+          </Panel>
+        )}
         <Panel
-          title="Coordinator commands"
-          description="Commands authorize a specific destination action. Their result is checked independently of submission."
+          title="Network transactions"
+          description="Track submissions and their confirmed outcomes."
         >
-          {commands.length ? (
+          {operations.length ? (
             <div
               className="table-scroll"
               tabIndex={0}
               role="region"
-              aria-label="Coordinator commands"
+              aria-label="Native chain operations"
             >
               <table>
                 <thead>
                   <tr>
-                    <th>Command</th>
+                    <th>Operation</th>
                     <th>Network</th>
                     <th>State</th>
-                    <th />
+                    <th>Transaction</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {commands.map((command) => (
-                    <tr key={command.id}>
+                  {operations.map((operation) => (
+                    <tr key={operation.id}>
                       <td>
-                        {command.action.replaceAll("_", " ")}
-                        <small>
-                          <Address value={command.id} />
-                        </small>
-                        {command.signature_error && (
-                          <small>
-                            {["succeeded", "invalidated"].includes(
-                              command.status,
-                            ) && "Previous signing error: "}
-                            {command.signature_error}
-                          </small>
+                        <Address value={operation.id} />
+                        <small>Attempt {operation.attempt}</small>
+                        {operation.error && <small>{operation.error}</small>}
+                      </td>
+                      <td>
+                        <ChainBadge chain={operation.chain} />
+                      </td>
+                      <td>
+                        <Status value={operation.state} />
+                      </td>
+                      <td>
+                        {operation.transaction_id ? (
+                          <Address value={operation.transaction_id} />
+                        ) : (
+                          "Not submitted"
                         )}
-                        {project.plans.some(
-                          (plan) => plan.id === command.plan,
-                        ) && (
-                          <small>
-                            <Link
-                              className="text-link"
-                              to={`${base}/activity?${new URLSearchParams({ plan: command.plan })}`}
-                            >
-                              View funding plan →
-                            </Link>
-                          </small>
-                        )}
-                      </td>
-                      <td>
-                        <ChainBadge chain={command.chain} />
-                      </td>
-                      <td>
-                        <Status value={command.status} />
-                      </td>
-                      <td>
-                        {(project.roles.owner || project.roles.authority) &&
-                          ["pending", "unobserved"].includes(
-                            command.status,
-                          ) && (
-                            <button
-                              className="button secondary small"
-                              onClick={() =>
-                                act({ kind: "invalidate", command })
-                              }
-                            >
-                              Invalidate command
-                            </button>
-                          )}
                       </td>
                     </tr>
                   ))}
@@ -342,87 +431,27 @@ export function Activity({
             </div>
           ) : (
             <Empty
-              title="No commands match these filters"
-              action={
-                <button
-                  className="button secondary small"
-                  onClick={resetFilters}
-                >
-                  Clear filters
-                </button>
+              title={
+                project.operations.length
+                  ? "No chain operations match these filters"
+                  : "No chain operations recorded"
               }
-            />
+              action={
+                project.operations.length > 0 && (
+                  <button
+                    className="button secondary small"
+                    onClick={resetFilters}
+                  >
+                    Clear filters
+                  </button>
+                )
+              }
+            >
+              Worker activity appears here as contracts progress.
+            </Empty>
           )}
         </Panel>
-      )}
-      <Panel
-        title="Chain operations"
-        description="Submitted and uncertain operations retain their transaction identity until their outcome is known."
-      >
-        {operations.length ? (
-          <div
-            className="table-scroll"
-            tabIndex={0}
-            role="region"
-            aria-label="Native chain operations"
-          >
-            <table>
-              <thead>
-                <tr>
-                  <th>Operation</th>
-                  <th>Network</th>
-                  <th>State</th>
-                  <th>Transaction</th>
-                </tr>
-              </thead>
-              <tbody>
-                {operations.map((operation) => (
-                  <tr key={operation.id}>
-                    <td>
-                      <Address value={operation.id} />
-                      <small>Attempt {operation.attempt}</small>
-                      {operation.error && <small>{operation.error}</small>}
-                    </td>
-                    <td>
-                      <ChainBadge chain={operation.chain} />
-                    </td>
-                    <td>
-                      <Status value={operation.state} />
-                    </td>
-                    <td>
-                      {operation.transaction_id ? (
-                        <Address value={operation.transaction_id} />
-                      ) : (
-                        "Not submitted"
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <Empty
-            title={
-              project.operations.length
-                ? "No chain operations match these filters"
-                : "No chain operations recorded"
-            }
-            action={
-              project.operations.length > 0 && (
-                <button
-                  className="button secondary small"
-                  onClick={resetFilters}
-                >
-                  Clear filters
-                </button>
-              )
-            }
-          >
-            Worker activity appears here as contracts progress.
-          </Empty>
-        )}
-      </Panel>
+      </details>
     </>
   );
 }
@@ -452,14 +481,39 @@ function FundingPlan({
     plan.routes.every(
       (route) => BigInt(route.dispatched) === 0n || BigInt(route.returned) > 0n,
     );
+  const recoveryDetails = useRef<HTMLDetailsElement>(null);
+  useEffect(() => {
+    if (plan.requires_attention && !terminal && recoveryDetails.current) {
+      recoveryDetails.current.open = true;
+    }
+  }, [plan.requires_attention, terminal]);
+  const received = plan.routes.reduce(
+    (total, route) => total + BigInt(route.received),
+    0n,
+  );
+  const progress: Record<string, string> = {
+    reserving: "Reserving project funds for this task.",
+    preparing: "Preparing transfers to the task’s network.",
+    delivering:
+      "Waiting for transfers to be confirmed on the destination network.",
+    allocating:
+      "Funds are ready. The task allocation is awaiting confirmation.",
+    settling:
+      "The task is funded. Remaining transfers and refunds are being settled.",
+    funded: "The task has received its full approved allocation.",
+    aborting: "Stopping new transfers and settling funds already sent.",
+    closed:
+      "The plan is closed. Review the task for its current funding status.",
+  };
   return (
     <div id={`funding-plan-${plan.id}`} className="operation-card">
       <div className="operation-title">
         <div>
-          <h3>Plan {short(plan.id, 6)}</h3>
-          <p style={{ marginTop: 7 }}>
-            <Money value={plan.principal} /> to {chainNames[plan.destination]} ·
-            Recovery attempts {plan.attempts}/{project.retry_limit}
+          <h3>
+            <Money value={plan.principal} /> to {chainNames[plan.destination]}
+          </h3>
+          <p className="review-note" style={{ marginTop: 7 }}>
+            {progress[plan.status] ?? "Waiting for the next confirmed update."}
           </p>
           {request && (
             <Link
@@ -478,7 +532,7 @@ function FundingPlan({
       </div>
       {plan.error &&
         (terminal ? (
-          <details>
+          <details className="disclosure">
             <summary>Previous recovery context</summary>
             <p>{plan.error}</p>
           </details>
@@ -486,115 +540,158 @@ function FundingPlan({
           <Notice tone="error">{plan.error}</Notice>
         ))}
       <div className="inline-meta">
-        <span>
-          Local portion <Money value={plan.local_amount} />
-        </span>
-        <span>
-          Expires {new Date(Number(plan.expires) * 1000).toLocaleString()}
-        </span>
+        {plan.routes.length > 0 && (
+          <span>
+            Transfers received <Money value={received.toString()} />
+          </span>
+        )}
+        {!terminal && (
+          <span>
+            Funding deadline{" "}
+            {new Date(Number(plan.expires) * 1000).toLocaleString()}
+          </span>
+        )}
       </div>
-      {plan.routes.length > 0 && (
-        <div
-          className="table-scroll"
-          tabIndex={0}
-          role="region"
-          aria-label={`Transfer routes for plan ${short(plan.id, 6)}`}
-          style={{ marginTop: 17 }}
-        >
-          <table>
-            <thead>
-              <tr>
-                <th>Route</th>
-                <th>Source debit</th>
-                <th>Destination receipt</th>
-                <th>Refund</th>
-                <th>Unsettled source amount</th>
-                <th>Transport expense</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {plan.routes.map((route) => (
-                <tr key={route.id}>
-                  <td>
-                    <ChainBadge chain={route.source} />
-                    <small>→ {chainNames[plan.destination]}</small>
-                  </td>
-                  <td>
-                    <Money value={route.dispatched} />
-                  </td>
-                  <td>
-                    <Money value={route.received} />
-                  </td>
-                  <td>
-                    <Money value={route.returned} />
-                  </td>
-                  <td>
-                    <Money value={route.unsettled_input} />
-                  </td>
-                  <td>
-                    {route.confirmed_transport_expense === null ? (
-                      "Not settled"
-                    ) : (
-                      <Money value={route.confirmed_transport_expense} />
-                    )}
-                  </td>
-                  <td>
-                    <button
-                      className="subtle-button"
-                      aria-label={`Provider details for route ${short(route.id, 6)}`}
-                      onClick={() => void inspect(route.id)}
-                    >
-                      Provider details
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-      {plan.routes.length === 0 && (
-        <p className="review-note" style={{ marginTop: 15 }}>
-          Local allocation; this plan does not require a transport route.
-        </p>
-      )}
-      {diagnostic &&
-        plan.routes.some((route) => route.id === diagnostic.route) && (
-          <div style={{ marginTop: 16 }}>
-            <div className="operation-title">
-              <h4>
-                Provider details · <Address value={diagnostic.route} />
-              </h4>
-              <button className="subtle-button" onClick={closeDiagnostic}>
-                Close details
-              </button>
+      <details className="disclosure">
+        <summary>
+          {plan.routes.length ? "Transfer breakdown" : "Allocation details"}
+          {plan.routes.length > 0 && (
+            <span className="disclosure-meta">
+              {plan.routes.length}{" "}
+              {plan.routes.length === 1 ? "route" : "routes"}
+            </span>
+          )}
+        </summary>
+        <dl className="definition-list">
+          <div>
+            <dt>Funding plan</dt>
+            <dd>
+              <Address value={plan.id} />
+            </dd>
+          </div>
+          <div>
+            <dt>Already on the destination network</dt>
+            <dd>
+              <Money value={plan.local_amount} />
+            </dd>
+          </div>
+          <div>
+            <dt>Recovery attempts</dt>
+            <dd>
+              {plan.attempts} / {project.retry_limit}
+            </dd>
+          </div>
+          {terminal && (
+            <div>
+              <dt>Funding deadline</dt>
+              <dd>{new Date(Number(plan.expires) * 1000).toLocaleString()}</dd>
             </div>
-            <Notice>
-              Provider status is diagnostic. Only verified chain receipts change
-              the project’s accounting.
-            </Notice>
-            {diagnostic.error ? (
-              <Notice tone="error">
-                {diagnostic.error}{" "}
-                <button
-                  className="subtle-button"
-                  onClick={() => void inspect(diagnostic.route)}
-                >
-                  Try again
-                </button>
-              </Notice>
-            ) : diagnostic.value === undefined ? (
-              <Loading>Fetching provider status…</Loading>
-            ) : (
-              <pre>{JSON.stringify(diagnostic.value, null, 2)}</pre>
-            )}
+          )}
+        </dl>
+        {plan.routes.length > 0 && (
+          <div
+            className="table-scroll"
+            tabIndex={0}
+            role="region"
+            aria-label={`Transfer routes for plan ${short(plan.id, 6)}`}
+            style={{ marginTop: 17 }}
+          >
+            <table>
+              <thead>
+                <tr>
+                  <th>Route</th>
+                  <th>Sent</th>
+                  <th>Received</th>
+                  <th>Returned</th>
+                  <th>Still unsettled</th>
+                  <th>Transfer cost</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {plan.routes.map((route) => (
+                  <tr key={route.id}>
+                    <td>
+                      <ChainBadge chain={route.source} />
+                      <small>→ {chainNames[plan.destination]}</small>
+                    </td>
+                    <td>
+                      <Money value={route.dispatched} />
+                    </td>
+                    <td>
+                      <Money value={route.received} />
+                    </td>
+                    <td>
+                      <Money value={route.returned} />
+                    </td>
+                    <td>
+                      <Money value={route.unsettled_input} />
+                    </td>
+                    <td>
+                      {route.confirmed_transport_expense === null ? (
+                        "Not settled"
+                      ) : (
+                        <Money value={route.confirmed_transport_expense} />
+                      )}
+                    </td>
+                    <td>
+                      <button
+                        className="subtle-button"
+                        aria-label={`Provider details for route ${short(route.id, 6)}`}
+                        onClick={() => void inspect(route.id)}
+                      >
+                        Provider details
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
+        {plan.routes.length === 0 && (
+          <p className="review-note" style={{ marginTop: 15 }}>
+            All funds are already on the task’s network. No transfer between
+            networks is needed.
+          </p>
+        )}
+        {diagnostic &&
+          plan.routes.some((route) => route.id === diagnostic.route) && (
+            <div style={{ marginTop: 16 }}>
+              <div className="operation-title">
+                <h4>
+                  Provider details · <Address value={diagnostic.route} />
+                </h4>
+                <button className="subtle-button" onClick={closeDiagnostic}>
+                  Close details
+                </button>
+              </div>
+              <Notice>
+                Provider status is diagnostic. Only verified chain receipts
+                change the project’s accounting.
+              </Notice>
+              {diagnostic.error ? (
+                <Notice tone="error">
+                  {diagnostic.error}{" "}
+                  <button
+                    className="subtle-button"
+                    onClick={() => void inspect(diagnostic.route)}
+                  >
+                    Try again
+                  </button>
+                </Notice>
+              ) : diagnostic.value === undefined ? (
+                <Loading>Fetching provider status…</Loading>
+              ) : (
+                <pre>{JSON.stringify(diagnostic.value, null, 2)}</pre>
+              )}
+            </div>
+          )}
+      </details>
       {(project.roles.authority || project.roles.owner) &&
         (!terminal || canRequeue) && (
-          <details>
-            <summary>Plan recovery</summary>
+          <details className="disclosure" ref={recoveryDetails}>
+            <summary>Recovery actions</summary>
             <p className="review-note" style={{ marginTop: 12 }}>
               Recovery retains already submitted transfers and their receipts.
               It never treats an unknown result as a failed payment.
