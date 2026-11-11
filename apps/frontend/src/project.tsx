@@ -82,6 +82,12 @@ export function ProjectPage() {
           {result.error instanceof Error ? result.error.message : ""}
         </Notice>
       )}
+      {!project.indexed && (
+        <Notice>
+          Some networks are still being indexed. Balances and tasks appear as
+          their finalized observations become available.
+        </Notice>
+      )}
       <nav className="tabs" aria-label="Project sections">
         <NavLink end to={base}>
           Overview
@@ -92,9 +98,15 @@ export function ProjectPage() {
         <NavLink to={`${base}/settings`}>Settings</NavLink>
       </nav>
       {tab === "overview" && <Overview project={project} base={base} />}
-      {tab === "tasks" && <Tasks project={project} act={setAction} />}
-      {tab === "funding" && <Funding project={project} act={setAction} />}
-      {tab === "activity" && <Activity project={project} act={setAction} />}
+      {tab === "tasks" && (
+        <Tasks key={project.key} project={project} act={setAction} />
+      )}
+      {tab === "funding" && (
+        <Funding key={project.key} project={project} act={setAction} />
+      )}
+      {tab === "activity" && (
+        <Activity key={project.key} project={project} act={setAction} />
+      )}
       {tab === "settings" && <Settings project={project} act={setAction} />}
       {!["overview", "tasks", "funding", "activity", "settings"].includes(
         tab,
@@ -125,7 +137,10 @@ function Overview({ project, base }: { project: ProjectDetail; base: string }) {
   const allocation = project.tasks
     .reduce((sum, task) => sum + BigInt(task.available), 0n)
     .toString();
-  const attention = project.plans.filter((plan) => plan.requires_attention);
+  const attention = project.plans.filter(
+    (plan) =>
+      plan.requires_attention && !["funded", "closed"].includes(plan.status),
+  );
   return (
     <>
       {attention.length > 0 && (
@@ -186,7 +201,7 @@ function Overview({ project, base }: { project: ProjectDetail; base: string }) {
           className="table-scroll"
           tabIndex={0}
           role="region"
-          aria-label="Scrollable project table"
+          aria-label="Project liquidity across networks"
         >
           <table>
             <thead>
@@ -247,7 +262,7 @@ function Overview({ project, base }: { project: ProjectDetail; base: string }) {
               className="table-scroll"
               tabIndex={0}
               role="region"
-              aria-label="Scrollable project table"
+              aria-label="Open project tasks"
             >
               <table>
                 <thead>
@@ -268,7 +283,7 @@ function Overview({ project, base }: { project: ProjectDetail; base: string }) {
                       <tr key={`${task.chain}:${task.id}`}>
                         <td>
                           <Link
-                            to={`${base}/tasks?task=${task.id}&chain=${task.chain}`}
+                            to={`${base}/tasks?${new URLSearchParams({ task: task.id, chain: task.chain })}`}
                             className="text-link"
                           >
                             {short(task.id, 5)}
@@ -289,9 +304,23 @@ function Overview({ project, base }: { project: ProjectDetail; base: string }) {
               </table>
             </div>
           ) : (
-            <Empty title="The first task starts here">
-              An agent creates a request on its execution network. The manager
-              reviews it before funding.
+            <Empty
+              title={
+                project.tasks.length
+                  ? "No open tasks"
+                  : "The first task starts here"
+              }
+              action={
+                project.tasks.length > 0 && (
+                  <Link className="text-link" to={`${base}/tasks`}>
+                    View completed tasks →
+                  </Link>
+                )
+              }
+            >
+              {project.tasks.length
+                ? "Completed and canceled tasks remain available in the task history."
+                : "An agent creates a request on its execution network. The manager reviews it before funding."}
             </Empty>
           )}
         </Panel>

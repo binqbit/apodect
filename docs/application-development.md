@@ -84,6 +84,13 @@ plans needing intervention. A successful wallet transaction does not by itself
 mean a cross-chain allocation is ready. Uncertain wallet submissions appear in
 **Account & wallets** and must be reconciled before another payment.
 
+Task and activity filters help find open work without changing FIFO priority.
+Links connect each budget request, funding plan and task. Before signing, review
+the affected record, recipient, amount, costs and deadline; a changed allocation
+or permission requires a fresh review. A Solana agent without a USDC receiving
+account can create it in the withdrawal transaction; the review shows its address
+and maximum SOL rent deposit.
+
 Purpose descriptions and completion reports are stored as immutable text with an
 on-chain hash. The author and current verified project owner/manager can read the
 text. An external hash may have no description in this deployment.

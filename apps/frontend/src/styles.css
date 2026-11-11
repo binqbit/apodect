@@ -1012,6 +1012,23 @@ li + li {
 .copy-feedback:empty {
   display: none;
 }
+.list-filters {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 20px 23px;
+  border-bottom: 1px solid var(--line);
+}
+.list-filters .field {
+  flex: 1 1 170px;
+  min-width: 0;
+}
+.filter-summary {
+  padding: 12px 23px;
+  color: var(--muted);
+  font-size: 0.76rem;
+}
 .skip-link {
   position: fixed;
   top: 10px;

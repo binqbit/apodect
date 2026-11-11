@@ -1,8 +1,11 @@
+import { useState } from "react";
+import { Link, useLocation } from "react-router-dom";
 import type { ProjectDetail } from "./api";
 import type { ActionTarget } from "./action";
 import {
   ChainBadge,
   Empty,
+  Field,
   Money,
   Notice,
   Panel,
@@ -18,6 +21,16 @@ export function Funding({
   project: ProjectDetail;
   act: (action: ActionTarget) => void;
 }) {
+  const location = useLocation();
+  const returnTo = `${location.pathname}${location.search}${location.hash}`;
+  const [status, setStatus] = useState("all");
+  const invoices = [...project.invoices]
+    .reverse()
+    .filter(
+      (invoice) =>
+        status === "all" ||
+        (status === "open" ? !invoice.closed : invoice.closed),
+    );
   return (
     <>
       <Panel
@@ -28,7 +41,7 @@ export function Funding({
           className="table-scroll"
           tabIndex={0}
           role="region"
-          aria-label="Scrollable project table"
+          aria-label="Project liquidity by network"
         >
           <table>
             <thead>
@@ -70,6 +83,12 @@ export function Funding({
                       {project.roles.owner && (
                         <button
                           className="button small secondary"
+                          disabled={BigInt(chain.available) === 0n}
+                          title={
+                            BigInt(chain.available) === 0n
+                              ? "No eligible funds are available on this network."
+                              : undefined
+                          }
                           onClick={() =>
                             act({ kind: "withdraw_free", chain: chain.chain })
                           }
@@ -77,10 +96,16 @@ export function Funding({
                           Withdraw free funds
                         </button>
                       )}
-                      {!project.roles.local_owners[chain.chain] &&
-                        !project.roles.owner && (
-                          <span className="muted">Owner wallet required</span>
-                        )}
+                      {!project.roles.local_owners[chain.chain] && (
+                        <Link
+                          className="text-link"
+                          to="/app/account"
+                          state={{ returnTo, chain: chain.chain }}
+                        >
+                          Link {chainNames[chain.chain]} owner wallet to add
+                          funds →
+                        </Link>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -92,6 +117,11 @@ export function Funding({
       <Notice>
         Delivery costs come from the project budget. The agent receives its full
         approved principal; a funding shortfall leaves the request waiting.
+        <p>
+          The local owner wallet deposits USDC. Project withdrawals require the
+          NEAR owner’s signature and send funds to the registered owner
+          recipient on the chosen network.
+        </p>
       </Notice>
       <Panel
         title="Replenishment requests"
@@ -107,8 +137,22 @@ export function Funding({
           )
         }
       >
-        {project.invoices.length ? (
-          project.invoices.map((invoice) => (
+        {project.invoices.length > 0 && (
+          <div className="list-filters">
+            <Field label="Replenishment status">
+              <select
+                value={status}
+                onChange={(event) => setStatus(event.target.value)}
+              >
+                <option value="all">All requests</option>
+                <option value="open">Awaiting owner response</option>
+                <option value="closed">Closed requests</option>
+              </select>
+            </Field>
+          </div>
+        )}
+        {invoices.length ? (
+          invoices.map((invoice) => (
             <div key={invoice.id} className="operation-card">
               <div className="operation-title">
                 <h3>Replenishment #{invoice.id}</h3>
@@ -175,13 +219,42 @@ export function Funding({
                         Fund on {chainNames[chain.chain]}
                       </button>
                     ))}
+                  {!project.chains.some(
+                    (chain) => project.roles.local_owners[chain.chain],
+                  ) && (
+                    <Link
+                      className="text-link"
+                      to="/app/account"
+                      state={{ returnTo }}
+                    >
+                      Link a local owner wallet to fund this request →
+                    </Link>
+                  )}
                 </div>
               )}
             </div>
           ))
         ) : (
-          <Empty title="No replenishment requests">
-            The manager can request additional project funding here.
+          <Empty
+            title={
+              project.invoices.length
+                ? "No replenishment requests match this status"
+                : "No replenishment requests"
+            }
+            action={
+              project.invoices.length > 0 && (
+                <button
+                  className="button secondary small"
+                  onClick={() => setStatus("all")}
+                >
+                  Show all requests
+                </button>
+              )
+            }
+          >
+            {project.invoices.length
+              ? "Choose another status to see the remaining requests."
+              : "The manager can request additional project funding here."}
           </Empty>
         )}
       </Panel>
