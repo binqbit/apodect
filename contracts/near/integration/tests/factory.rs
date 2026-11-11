@@ -4,7 +4,7 @@ use anyhow::{Result, ensure};
 use near_workspaces::AccountId;
 use near_workspaces::types::{AccountDetailsPatch, NearToken};
 use serde_json::{Value, json};
-use support::{Fixture, fails, number, reference};
+use support::{Fixture, fails, number, reference, wasm};
 
 #[tokio::test]
 async fn factory_isolation_failed_creation_refund_and_storage_prepayment() -> Result<()> {
@@ -161,9 +161,8 @@ fn remove_initializer_export(bytes: &mut [u8]) {
 
 #[tokio::test]
 async fn failed_initializer_rolls_back_child_funding_and_refunds_exactly_once() -> Result<()> {
-    let artifacts = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../artifacts");
-    let project = std::fs::read(artifacts.join("apodect_near_project.wasm"))?;
-    let mut factory_code = std::fs::read(artifacts.join("apodect_near_workspace.wasm"))?;
+    let project = wasm("project")?;
+    let mut factory_code = wasm("workspace")?;
     let position = factory_code
         .windows(project.len())
         .position(|bytes| bytes == project)

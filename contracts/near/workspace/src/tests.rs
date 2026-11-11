@@ -3,28 +3,8 @@
 use crate::{Creation, CreationState, Workspace};
 use near_sdk::borsh::{self, BorshSerialize};
 use near_sdk::test_utils::VMContextBuilder;
-use near_sdk::{AccountId, NearToken, env, testing_env};
+use near_sdk::{NearToken, env, testing_env};
 use std::collections::BTreeMap;
-
-#[test]
-fn initialization_binds_owner_and_asset() {
-    let account: AccountId = "workspace.test.near".parse().unwrap();
-    testing_env!(
-        VMContextBuilder::new()
-            .current_account_id(account.clone())
-            .predecessor_account_id(account)
-            .build()
-    );
-    let workspace = Workspace::new(
-        "owner.test.near".parse().unwrap(),
-        "usdc.test.near".parse().unwrap(),
-    );
-    assert_eq!(workspace.get_workspace().next_project, 0);
-    assert_eq!(
-        workspace.get_workspace().owner_id.as_str(),
-        "owner.test.near"
-    );
-}
 
 fn encoded(value: &impl BorshSerialize) -> String {
     hex(&borsh::to_vec(value).unwrap())
@@ -49,6 +29,7 @@ fn state_compatibility() {
         "owner.test.near".parse().unwrap(),
         "token.test.near".parse().unwrap(),
     );
+    assert_eq!(workspace.get_workspace().next_project, 0);
     workspace.next_project = 17;
     let creation = Creation {
         account_id: "p16.workspace.test.near".parse().unwrap(),

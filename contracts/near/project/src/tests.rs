@@ -502,7 +502,7 @@ fn state_and_json_compatibility() {
     env::state_write(&project);
     let json_api = near_sdk::serde_json::json!({
         "project":project.get_project(),"task":project.get_task(7),"request":project.get_request(8),"invoice":project.get_invoice(9),"operation":project.get_operation(10),
-        "messages":[DepositMessage::Fund{invoice_id:None},DepositMessage::Fund{invoice_id:Some(9)},DepositMessage::Return{task_id:7}],
+        "messages":[DepositMessage::Fund{invoice_id:None,global_invoice:None,funding_ref:None},DepositMessage::Fund{invoice_id:Some(9),global_invoice:None,funding_ref:None},DepositMessage::Return{task_id:7}],
         "apply":[ApplyResult::Empty,ApplyResult::Skipped{request_id:8},ApplyResult::Waiting{request_id:8,required:U128(27),available:U128(11)},ApplyResult::Funded{request_id:8,task_id:7,amount:U128(27)}]
     });
     let storage: BTreeMap<_, _> =
@@ -519,6 +519,467 @@ fn state_and_json_compatibility() {
         "operation_states":[encoded(&OperationState::Pending),encoded(&OperationState::Succeeded),encoded(&OperationState::Failed)]
     });
     let expected: near_sdk::serde_json::Value =
-        near_sdk::serde_json::from_str(include_str!("tests/fixtures/state-v1.json")).unwrap();
+        near_sdk::serde_json::from_str(include_str!("tests/fixtures/state-v3.json")).unwrap();
     assert_eq!(actual, expected);
+}
+
+fn coordinated_signature(name: &str) -> near_sdk::serde_json::Value {
+    near_sdk::serde_json::from_str::<near_sdk::serde_json::Value>(include_str!(
+        "../tests/fixtures/coordinated-signatures.json"
+    ))
+    .unwrap()[name]
+        .clone()
+}
+fn coordinated_project() -> Project {
+    coordinated_project_with_funds(100)
+}
+
+fn coordinated_project_with_funds(amount: u128) -> Project {
+    let mut p = project();
+    fund(&mut p, amount);
+    context("owner");
+    let key = coordinated_signature("public_key")
+        .as_str()
+        .unwrap()
+        .to_owned();
+    p.bind_coordinator("11".repeat(32), key);
+    p
+}
+
+#[test]
+fn owner_funding_reference_recovers_exact_receipt_and_refunds_duplicates() {
+    let mut p = coordinated_project();
+    let reference = "ab".repeat(32);
+    let message = near_sdk::serde_json::json!({"kind": "fund",
+        "global_invoice": "00".repeat(32), "funding_ref": reference})
+    .to_string();
+    context("token");
+    assert!(matches!(
+        p.ft_on_transfer(account("owner"), U128(25), message.clone()),
+        near_sdk::PromiseOrValue::Value(U128(0))
+    ));
+    let receipt = p.get_funding_by_reference(reference.clone()).unwrap();
+    assert_eq!(p.get_funding(format!("{:064x}", 1)), Some(receipt.clone()));
+    assert_eq!(p.free, 125);
+    context("token");
+    assert!(matches!(
+        p.ft_on_transfer(account("owner"), U128(25), message),
+        near_sdk::PromiseOrValue::Value(U128(25))
+    ));
+    assert_eq!(p.free, 125);
+    assert_eq!(p.get_funding_by_reference(reference), Some(receipt));
+    assert_eq!(p.get_bridge()["next_funding"], 2);
+}
+
+#[test]
+#[should_panic(expected = "FUNDING_REFERENCE_TERMS_CHANGED")]
+fn owner_cannot_reuse_funding_reference_for_different_terms() {
+    let mut p = coordinated_project();
+    let message = near_sdk::serde_json::json!({"kind": "fund",
+        "funding_ref": "ab".repeat(32)})
+    .to_string();
+    context("token");
+    let _ = p.ft_on_transfer(account("owner"), U128(25), message.clone());
+    context("token");
+    let _ = p.ft_on_transfer(account("owner"), U128(26), message);
+}
+fn execute(p: &mut Project, name: &str) {
+    let value = coordinated_signature(name);
+    context("relayer");
+    let _ = p.execute_command(
+        value["command"].as_str().unwrap().into(),
+        value["signature"].as_str().unwrap().into(),
+        value["recovery_id"].as_u64().unwrap() as u8,
+        match name {
+            "dispatch" => Some(account("sink")),
+            "owner_withdraw" => Some(account("owner")),
+            _ => None,
+        },
+    );
+}
+
+fn settle_bridge(project: &mut Project, operation: u64, success: bool) {
+    testing_env!(
+        VMContextBuilder::new()
+            .current_account_id("p0.workspace.test.near".parse().unwrap())
+            .predecessor_account_id("p0.workspace.test.near".parse().unwrap())
+            .account_balance(NearToken::from_near(100))
+            .build(),
+        near_sdk::test_vm_config(),
+        near_sdk::RuntimeFeesConfig::test(),
+        Default::default(),
+        vec![if success {
+            PromiseResult::Successful(vec![])
+        } else {
+            PromiseResult::Failed
+        }]
+    );
+    project.settle_bridge(format!("{operation:064x}"));
+}
+
+fn refund(project: &mut Project, amount: u128) -> u128 {
+    let route = "44".repeat(32);
+    let receiver = project.route_receiver(route.clone());
+    context("token");
+    match project.ft_on_transfer(
+        receiver,
+        U128(amount),
+        near_sdk::serde_json::json!({"kind": "refund", "route": route}).to_string(),
+    ) {
+        near_sdk::PromiseOrValue::Value(unused) => unused.0,
+        _ => panic!("refund must settle synchronously at the Project"),
+    }
+}
+
+fn accounted_custody(project: &Project) -> u64 {
+    project.get_bridge()["accounted_custody"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap()
+}
+
+#[test]
+#[should_panic(expected = "CUSTODY_CAPACITY_EXCEEDED")]
+fn a_full_reservation_does_not_create_capacity_for_more_owner_funding() {
+    let mut p = coordinated_project_with_funds(u128::from(u64::MAX));
+    execute(&mut p, "reserve_capacity");
+    assert_eq!(p.free, 0);
+    assert_eq!(accounted_custody(&p), u64::MAX);
+    assert_eq!(p.get_bridge()["held"], u64::MAX.to_string());
+    fund(&mut p, 1);
+}
+
+#[test]
+fn closing_a_full_reservation_only_reclassifies_existing_custody() {
+    let mut p = coordinated_project_with_funds(u128::from(u64::MAX));
+    execute(&mut p, "reserve_capacity");
+    execute(&mut p, "close_capacity");
+    assert_eq!(p.free, u128::from(u64::MAX));
+    assert_eq!(accounted_custody(&p), u64::MAX);
+    assert_eq!(p.get_bridge()["held"], "0");
+}
+
+#[test]
+fn pending_task_failure_retains_capacity_and_restores_after_intervening_funding() {
+    let mut p = coordinated_project_with_funds(u128::from(u64::MAX - 10));
+    context("agent");
+    p.create_task(U128(60), [1; 32]);
+    execute(&mut p, "reserve");
+    execute(&mut p, "allocate");
+    context("agent");
+    p.withdraw(0, U128(20)).detach();
+    assert_eq!(accounted_custody(&p), u64::MAX - 10);
+    fund(&mut p, 10);
+    assert_eq!(accounted_custody(&p), u64::MAX);
+    settle(&mut p, 0, false);
+    assert_eq!(p.get_task(0).unwrap().available.0, 60);
+    assert_eq!(p.get_task(0).unwrap().pending_outflow.0, 0);
+    assert_eq!(accounted_custody(&p), u64::MAX);
+    assert_eq!(
+        p.free + p.get_task(0).unwrap().available.0,
+        u128::from(u64::MAX)
+    );
+}
+
+#[test]
+#[should_panic(expected = "CUSTODY_CAPACITY_EXCEEDED")]
+fn unresolved_task_withdrawal_never_frees_ingress_capacity() {
+    let mut p = coordinated_project_with_funds(u128::from(u64::MAX));
+    context("agent");
+    p.create_task(U128(60), [1; 32]);
+    execute(&mut p, "reserve");
+    execute(&mut p, "allocate");
+    context("agent");
+    p.withdraw(0, U128(20)).detach();
+    fund(&mut p, 1);
+}
+
+#[test]
+fn pending_bridge_failures_restore_once_after_intervening_funding_and_closure() {
+    let mut p = coordinated_project_with_funds(u128::from(u64::MAX - 20));
+    execute(&mut p, "reserve");
+    execute(&mut p, "refund");
+    settle_bridge(&mut p, 11, true);
+    execute(&mut p, "dispatch");
+    assert_eq!(accounted_custody(&p), u64::MAX - 20);
+    fund(&mut p, 10);
+    execute(&mut p, "close_transport");
+    settle_bridge(&mut p, 12, false);
+    settle_bridge(&mut p, 12, false);
+    assert_eq!(p.free, u128::from(u64::MAX - 10));
+    assert_eq!(accounted_custody(&p), u64::MAX - 10);
+
+    execute(&mut p, "owner_withdraw");
+    assert_eq!(accounted_custody(&p), u64::MAX - 10);
+    fund(&mut p, 10);
+    settle_bridge(&mut p, 22, false);
+    settle_bridge(&mut p, 22, false);
+    assert_eq!(p.free, u128::from(u64::MAX));
+    assert_eq!(accounted_custody(&p), u64::MAX);
+}
+
+#[test]
+#[should_panic(expected = "CUSTODY_CAPACITY_EXCEEDED")]
+fn unresolved_dispatch_never_frees_ingress_capacity() {
+    let mut p = coordinated_project_with_funds(u128::from(u64::MAX));
+    execute(&mut p, "reserve");
+    execute(&mut p, "refund");
+    settle_bridge(&mut p, 11, true);
+    execute(&mut p, "dispatch");
+    fund(&mut p, 1);
+}
+
+#[test]
+#[should_panic(expected = "CUSTODY_CAPACITY_EXCEEDED")]
+fn unresolved_owner_withdrawal_never_frees_ingress_capacity() {
+    let mut p = coordinated_project_with_funds(u128::from(u64::MAX));
+    execute(&mut p, "owner_withdraw");
+    fund(&mut p, 1);
+}
+
+#[test]
+fn reclassification_regrant_and_actual_return_preserve_aggregate_custody() {
+    let mut p = coordinated_project();
+    context("agent");
+    p.create_task(U128(60), [1; 32]);
+    execute(&mut p, "reserve");
+    execute(&mut p, "allocate");
+    execute(&mut p, "pause");
+    execute(&mut p, "reclaim");
+    execute(&mut p, "restore");
+    execute(&mut p, "reserve_restoration");
+    execute(&mut p, "allocate_restoration");
+    execute(&mut p, "continue");
+    assert_eq!(accounted_custody(&p), 100);
+    assert_eq!(p.get_task(0).unwrap().available.0, 70);
+    context("agent");
+    p.withdraw(0, U128(20)).detach();
+    assert_eq!(accounted_custody(&p), 100);
+    settle(&mut p, 0, true);
+    assert_eq!(accounted_custody(&p), 80);
+    assert!(!p.settle_outflow(0));
+    assert_eq!(accounted_custody(&p), 80);
+    context("token");
+    let _ = p.ft_on_transfer(
+        account("agent"),
+        U128(7),
+        r#"{"kind":"return","task_id":0}"#.into(),
+    );
+    assert_eq!(accounted_custody(&p), 87);
+    context("agent");
+    p.release(0, U128(50));
+    assert_eq!(accounted_custody(&p), 87);
+    assert_eq!(p.request_budget(0, U128(30), [1; 32]), 2);
+    execute(&mut p, "reserve_regrant");
+    execute(&mut p, "allocate_regrant");
+    assert_eq!(p.get_task(0).unwrap().available.0, 30);
+    assert_eq!(p.get_task(0).unwrap().issued.0, 120);
+    assert_eq!(accounted_custody(&p), 87);
+    context("agent");
+    p.release(0, U128(30));
+    assert_eq!(p.finalize(0, None).0, 13);
+    assert_eq!(p.free, 87);
+    assert_eq!(accounted_custody(&p), 87);
+}
+
+#[test]
+fn confirmed_owner_withdrawal_releases_capacity_exactly_once() {
+    let mut p = coordinated_project();
+    execute(&mut p, "owner_withdraw");
+    assert_eq!(accounted_custody(&p), 100);
+    settle_bridge(&mut p, 22, true);
+    settle_bridge(&mut p, 22, true);
+    assert_eq!(p.free, 80);
+    assert_eq!(accounted_custody(&p), 80);
+    fund(&mut p, 20);
+    assert_eq!(p.free, 100);
+    assert_eq!(accounted_custody(&p), 100);
+}
+
+#[test]
+#[should_panic(expected = "CUSTODY_CAPACITY_EXCEEDED")]
+fn an_actual_agent_return_cannot_exceed_aggregate_capacity() {
+    let mut p = coordinated_project_with_funds(u128::from(u64::MAX));
+    context("agent");
+    p.create_task(U128(60), [1; 32]);
+    execute(&mut p, "reserve");
+    execute(&mut p, "allocate");
+    context("agent");
+    p.withdraw(0, U128(20)).detach();
+    settle(&mut p, 0, true);
+    fund(&mut p, 20);
+    context("token");
+    let _ = p.ft_on_transfer(
+        account("agent"),
+        U128(1),
+        r#"{"kind":"return","task_id":0}"#.into(),
+    );
+}
+
+#[test]
+#[should_panic(expected = "CUSTODY_CAPACITY_EXCEEDED")]
+fn actual_route_delivery_cannot_exceed_aggregate_capacity() {
+    let mut p = coordinated_project_with_funds(u128::from(u64::MAX));
+    execute(&mut p, "reserve");
+    execute(&mut p, "delivery");
+    settle_bridge(&mut p, 10, true);
+    let route = "22".repeat(32);
+    let sender = p.route_receiver(route.clone());
+    context("token");
+    let _ = p.ft_on_transfer(
+        sender,
+        U128(40),
+        near_sdk::serde_json::json!({"kind":"delivery", "route":route}).to_string(),
+    );
+}
+
+#[test]
+fn refunds_require_confirmed_dispatch_and_are_cumulatively_bounded() {
+    let mut p = coordinated_project();
+    execute(&mut p, "reserve");
+    execute(&mut p, "refund");
+    settle_bridge(&mut p, 11, true);
+    assert_eq!(refund(&mut p, 7), 7);
+    assert_eq!(p.free, 40);
+
+    execute(&mut p, "dispatch");
+    assert_eq!(p.get_command(format!("{:064x}", 12))["state"], 4);
+    assert_eq!(refund(&mut p, 7), 7);
+    assert_eq!(p.free, 40);
+    assert_eq!(p.get_route("44".repeat(32))["dispatched"], "0");
+
+    settle_bridge(&mut p, 12, true);
+    assert_eq!(refund(&mut p, 7), 0);
+    assert_eq!(refund(&mut p, 20), 7);
+    assert_eq!(refund(&mut p, 1), 1);
+    assert_eq!(p.free, 60);
+    let route = p.get_route("44".repeat(32));
+    assert_eq!(route["received"], "20");
+    assert_eq!(route["dispatched"], "20");
+    // A replayed callback cannot reverse success or restore dispatched funds.
+    settle_bridge(&mut p, 12, false);
+    assert_eq!(p.get_command(format!("{:064x}", 12))["state"], 1);
+    assert_eq!(p.get_plan(format!("{:064x}", 1))["held"], "40");
+    assert_eq!(p.free, 60);
+}
+
+#[test]
+fn failed_dispatch_after_plan_closure_restores_cash_once_without_refund_credit() {
+    let mut p = coordinated_project();
+    execute(&mut p, "reserve");
+    execute(&mut p, "refund");
+    settle_bridge(&mut p, 11, true);
+    execute(&mut p, "dispatch");
+    execute(&mut p, "close_transport");
+    assert_eq!(p.free, 80);
+    assert_eq!(refund(&mut p, 20), 20);
+
+    settle_bridge(&mut p, 12, false);
+    settle_bridge(&mut p, 12, false);
+    assert_eq!(p.free, 100);
+    assert_eq!(refund(&mut p, 20), 20);
+    let route = p.get_route("44".repeat(32));
+    assert_eq!(route["received"], "0");
+    assert_eq!(route["dispatched"], "0");
+    assert_eq!(p.get_plan(format!("{:064x}", 1))["held"], "0");
+    assert_eq!(p.get_bridge()["held"], "0");
+}
+
+fn after_command_deadline() {
+    testing_env!(
+        VMContextBuilder::new()
+            .current_account_id("p0.workspace.test.near".parse().unwrap())
+            .predecessor_account_id(account("relayer"))
+            .attached_deposit(NearToken::from_near(1))
+            .account_balance(NearToken::from_near(100))
+            .prepaid_gas(Gas::from_tgas(300))
+            .block_timestamp(2_000_000_001_000_000_000)
+            .build()
+    );
+}
+
+#[test]
+fn expired_exact_command_replay_keeps_immutable_success_without_another_reservation() {
+    let mut p = coordinated_project();
+    execute(&mut p, "reserve");
+    let before = p.get_command(format!("{:064x}", 1));
+    let signed = coordinated_signature("reserve");
+    after_command_deadline();
+    assert!(matches!(
+        p.execute_command(
+            signed["command"].as_str().unwrap().into(),
+            signed["signature"].as_str().unwrap().into(),
+            signed["recovery_id"].as_u64().unwrap() as u8,
+            None,
+        ),
+        near_sdk::PromiseOrValue::Value(_)
+    ));
+    assert_eq!(p.get_command(format!("{:064x}", 1)), before);
+    assert_eq!(p.free, 40);
+    assert_eq!(p.get_plan(format!("{:064x}", 1))["held"], "60");
+}
+
+#[test]
+#[should_panic(expected = "COMMAND_EXPIRED")]
+fn expired_unexecuted_command_cannot_create_a_reservation() {
+    let mut p = coordinated_project();
+    let signed = coordinated_signature("reserve");
+    after_command_deadline();
+    let _ = p.execute_command(
+        signed["command"].as_str().unwrap().into(),
+        signed["signature"].as_str().unwrap().into(),
+        signed["recovery_id"].as_u64().unwrap() as u8,
+        None,
+    );
+}
+#[test]
+fn signed_coordinated_plan_preserves_agent_and_owner_local_rules() {
+    let mut p = coordinated_project();
+    context("agent");
+    p.create_task(U128(60), [1; 32]);
+    execute(&mut p, "reserve");
+    assert_eq!(p.free, 40);
+    execute(&mut p, "reserve");
+    assert_eq!(p.free, 40);
+    execute(&mut p, "allocate");
+    assert_eq!(p.get_task(0).unwrap().available.0, 60);
+    execute(&mut p, "allocate");
+    assert_eq!(p.get_task(0).unwrap().issued.0, 60);
+    execute(&mut p, "pause");
+    execute(&mut p, "reclaim");
+    assert_eq!(p.free, 60);
+    assert_eq!(p.get_task(0).unwrap().available.0, 40);
+    execute(&mut p, "restore");
+    assert_eq!(p.get_task(0).unwrap().live_request, Some(1));
+    assert_eq!(p.get_request(1).unwrap().state, RequestState::Pending);
+    execute(&mut p, "continue");
+    assert!(!p.get_task(0).unwrap().paused);
+    execute(&mut p, "close");
+    assert_eq!(p.free, 60);
+    assert_eq!(p.get_task(0).unwrap().available.0, 40);
+}
+#[test]
+#[should_panic(expected = "COORDINATOR_REQUIRED")]
+fn coordinated_binding_disables_direct_local_authority() {
+    let mut p = coordinated_project();
+    context("agent");
+    p.create_task(U128(60), [1; 32]);
+    context("authority");
+    p.approve_request(0);
+}
+#[test]
+#[should_panic(expected = "UNAUTHORIZED_COMMAND_SIGNATURE")]
+fn modifying_signed_amount_cannot_reserve_funds() {
+    let mut p = coordinated_project();
+    let v = coordinated_signature("reserve");
+    let mut c = apodect_near_protocol::Command::parse(v["command"].as_str().unwrap());
+    c.words[7] = apodect_near_protocol::uint(61);
+    context("relayer");
+    let _ = p.execute_command(
+        c.hex(),
+        v["signature"].as_str().unwrap().into(),
+        v["recovery_id"].as_u64().unwrap() as u8,
+        None,
+    );
 }

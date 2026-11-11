@@ -10,15 +10,24 @@ export CARGO_ENCODED_RUSTFLAGS="${CARGO_ENCODED_RUSTFLAGS:+${CARGO_ENCODED_RUSTF
 
 mkdir -p artifacts
 
+near_target="${CARGO_TARGET_DIR:-$near_root/target}"
+cargo build --locked --release --target wasm32-unknown-unknown \
+    -p apodect-near-route-escrow
+cp "$near_target/wasm32-unknown-unknown/release/apodect_near_route_escrow.wasm" artifacts/
+
 cargo build --locked --release --target wasm32-unknown-unknown \
     -p apodect-near-project
 
-near_target="${CARGO_TARGET_DIR:-$near_root/target}"
 cp "$near_target/wasm32-unknown-unknown/release/apodect_near_project.wasm" artifacts/
 
 cargo build --locked --release --target wasm32-unknown-unknown \
     -p apodect-near-workspace \
-    -p apodect-near-test-ft
+    -p apodect-near-test-ft \
+    -p apodect-near-coordinator \
+    -p apodect-near-mock-mpc
 
 cp "$near_target/wasm32-unknown-unknown/release/apodect_near_workspace.wasm" artifacts/
 cp "$near_target/wasm32-unknown-unknown/release/apodect_near_test_ft.wasm" artifacts/
+
+cp "$near_target/wasm32-unknown-unknown/release/apodect_near_coordinator.wasm" artifacts/
+cp "$near_target/wasm32-unknown-unknown/release/apodect_near_mock_mpc.wasm" artifacts/

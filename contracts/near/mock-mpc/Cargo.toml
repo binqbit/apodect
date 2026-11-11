@@ -1,0 +1,16 @@
+[package]
+name = "apodect-near-mock-mpc"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+near-sdk.workspace = true
+apodect-near-protocol = { path = "../protocol" }
+
+[dev-dependencies]
+near-sdk = { workspace = true, features = ["unit-testing"] }

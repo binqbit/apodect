@@ -190,6 +190,7 @@ impl Project {
         reference: Option<Reference>,
     ) {
         self.assert_owner();
+        self.assert_standalone();
         let mut invoice = self
             .invoices
             .get(&invoice_id)
@@ -236,6 +237,10 @@ impl Project {
         kind: RequestKind,
         state: RequestState,
     ) -> u64 {
+        require!(
+            self.bridge.binding.is_none() || amount <= u128::from(u64::MAX),
+            "AMOUNT_EXCEEDS_U64"
+        );
         let id = self.next_request;
         self.next_request = id.checked_add(1).expect("REQUEST_ID_OVERFLOW");
         self.requests.insert(

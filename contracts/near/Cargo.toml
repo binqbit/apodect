@@ -1,5 +1,5 @@
 [workspace]
-members = ["project", "workspace", "test-ft", "integration", "localnet"]
+members = ["project", "workspace", "test-ft", "integration", "localnet", "protocol", "coordinator", "mock-mpc", "route-escrow"]
 resolver = "2"
 
 [workspace.package]

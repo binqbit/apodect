@@ -67,6 +67,7 @@ impl Project {
     #[payable]
     pub fn withdraw_free(&mut self, amount: U128) -> Promise {
         self.assert_owner();
+        self.assert_standalone();
         Self::assert_positive(amount.0);
         require!(self.free >= amount.0, "INSUFFICIENT_FREE_FUNDS");
         require!(
@@ -102,6 +103,9 @@ impl Project {
             Err(near_sdk::PromiseError::Failed) => false,
             Err(_) => env::panic_str("UNKNOWN_PROMISE_RESULT"),
         };
+        if success {
+            self.confirm_custody_outflow(operation.amount);
+        }
         if let Some(task_id) = operation.task_id {
             let mut task = self.task(task_id);
             task.pending_outflow = Self::sub(task.pending_outflow, operation.amount);
@@ -148,12 +152,20 @@ impl FungibleTokenReceiver for Project {
             "WRONG_TOKEN"
         );
         Self::assert_positive(amount.0);
-        require!(msg.len() <= 160, "DEPOSIT_MESSAGE_TOO_LONG");
+        require!(msg.len() <= 256, "DEPOSIT_MESSAGE_TOO_LONG");
         let message: DepositMessage =
             near_sdk::serde_json::from_str(&msg).expect("INVALID_DEPOSIT_MESSAGE");
         match message {
-            DepositMessage::Fund { invoice_id } => {
+            DepositMessage::Fund {
+                invoice_id,
+                global_invoice,
+                funding_ref,
+            } => {
                 require!(sender_id == self.owner_id, "ONLY_OWNER_FUNDING");
+                require!(
+                    self.bridge.binding.is_none() || invoice_id.is_none(),
+                    "COORDINATOR_INVOICE_REQUIRED"
+                );
                 if let Some(invoice_id) = invoice_id {
                     let mut invoice = self
                         .invoices
@@ -164,6 +176,10 @@ impl FungibleTokenReceiver for Project {
                     invoice.actual_funding = Self::add(invoice.actual_funding, amount.0);
                     self.invoices.insert(invoice_id, invoice);
                 }
+                if !self.record_funding(global_invoice, amount.0, funding_ref) {
+                    return PromiseOrValue::Value(amount);
+                }
+                self.account_custody_ingress(amount.0);
                 self.free = Self::add(self.free, amount.0);
 
                 Self::emit(
@@ -179,6 +195,7 @@ impl FungibleTokenReceiver for Project {
                 require!(sender_id == task.agent, "ONLY_TASK_AGENT");
                 Self::assert_nonterminal(&task);
                 require!(amount.0 <= Self::external(&task), "EXCESS_TASK_RETURN");
+                self.account_custody_ingress(amount.0);
                 task.recovered = Self::add(task.recovered, amount.0);
                 self.free = Self::add(self.free, amount.0);
                 self.tasks.insert(task_id, task);
@@ -190,6 +207,20 @@ impl FungibleTokenReceiver for Project {
                         "amount": amount
                     }),
                 );
+            }
+            DepositMessage::Delivery { route } => {
+                require!(
+                    sender_id == self.route_receiver(route.clone()),
+                    "WRONG_ROUTE_SENDER"
+                );
+                return PromiseOrValue::Value(self.receive_route(&route, amount, false));
+            }
+            DepositMessage::Refund { route } => {
+                require!(
+                    sender_id == self.route_receiver(route.clone()),
+                    "WRONG_ROUTE_SENDER"
+                );
+                return PromiseOrValue::Value(self.receive_route(&route, amount, true));
             }
         }
         PromiseOrValue::Value(U128(0))

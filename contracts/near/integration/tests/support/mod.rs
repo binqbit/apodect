@@ -18,11 +18,17 @@ pub(crate) struct Fixture {
     pub(crate) project: AccountId,
 }
 
-fn wasm(name: &str) -> Result<Vec<u8>> {
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../artifacts");
-    Ok(std::fs::read(
-        root.join(format!("apodect_near_{name}.wasm")),
-    )?)
+pub(crate) fn wasm(name: &str) -> Result<Vec<u8>> {
+    let root = std::path::PathBuf::from(
+        std::env::var_os("APODECT_NEAR_ARTIFACT_DIR")
+            .context("APODECT_NEAR_ARTIFACT_DIR is required; run scripts/check.sh")?,
+    );
+    ensure!(
+        root.is_absolute(),
+        "APODECT_NEAR_ARTIFACT_DIR must be absolute"
+    );
+    let path = root.join(format!("apodect_near_{name}.wasm"));
+    std::fs::read(&path).with_context(|| format!("read {}; run scripts/check.sh", path.display()))
 }
 
 pub(crate) async fn tx(

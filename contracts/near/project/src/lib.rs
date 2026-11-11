@@ -4,6 +4,7 @@ use near_sdk::json_types::U128;
 use near_sdk::store::LookupMap;
 use near_sdk::{AccountId, PanicOnDefault, env, near, require};
 
+mod bridge;
 mod budget;
 mod helpers;
 mod state;
@@ -38,6 +39,7 @@ pub struct Project {
     queue: LookupMap<u64, u64>,
     invoices: LookupMap<u64, Invoice>,
     operations: LookupMap<u64, Operation>,
+    bridge: bridge::Bridge,
 }
 
 #[near]
@@ -79,12 +81,14 @@ impl Project {
             queue: LookupMap::new(Key::Queue),
             invoices: LookupMap::new(Key::Invoices),
             operations: LookupMap::new(Key::Operations),
+            bridge: bridge::Bridge::new(),
         }
     }
 
     #[payable]
     pub fn set_authority(&mut self, authority_id: AccountId) {
         self.assert_owner();
+        self.assert_standalone();
         require!(
             authority_id != env::current_account_id(),
             "INVALID_ROLE_ACCOUNT"

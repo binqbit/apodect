@@ -10,10 +10,15 @@ impl Project {
     }
 
     pub(crate) fn assert_authority(&self) {
+        self.assert_standalone();
         require!(
             env::predecessor_account_id() == self.authority_id,
             "ONLY_AUTHORITY"
         );
+    }
+
+    pub(crate) fn assert_standalone(&self) {
+        require!(self.bridge.binding.is_none(), "COORDINATOR_REQUIRED");
     }
 
     pub(crate) fn assert_agent(task: &Task) {
@@ -59,6 +64,7 @@ impl Project {
         self.queue.flush();
         self.invoices.flush();
         self.operations.flush();
+        self.bridge.flush();
         env::state_write(self);
         let bytes = env::storage_usage().saturating_sub(before);
         let cost = u128::from(bytes)

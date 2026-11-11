@@ -174,6 +174,20 @@ pub enum ApplyResult {
 #[near(serializers = [json])]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum DepositMessage {
-    Fund { invoice_id: Option<u64> },
-    Return { task_id: u64 },
+    Fund {
+        invoice_id: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        global_invoice: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        funding_ref: Option<String>,
+    },
+    Return {
+        task_id: u64,
+    },
+    Delivery {
+        route: String,
+    },
+    Refund {
+        route: String,
+    },
 }

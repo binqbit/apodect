@@ -43,6 +43,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
+name = "apodect-near-coordinator"
+version = "0.1.0"
+dependencies = [
+ "apodect-near-protocol",
+ "near-sdk",
+]
+
+[[package]]
 name = "apodect-near-integration"
 version = "0.1.0"
 dependencies = [
@@ -64,10 +72,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "apodect-near-mock-mpc"
+version = "0.1.0"
+dependencies = [
+ "apodect-near-protocol",
+ "near-sdk",
+]
+
+[[package]]
 name = "apodect-near-project"
 version = "0.1.0"
 dependencies = [
+ "apodect-near-protocol",
  "near-contract-standards",
+ "near-sdk",
+]
+
+[[package]]
+name = "apodect-near-protocol"
+version = "0.1.0"
+dependencies = [
+ "near-sdk",
+]
+
+[[package]]
+name = "apodect-near-route-escrow"
+version = "0.1.0"
+dependencies = [
  "near-sdk",
 ]
 

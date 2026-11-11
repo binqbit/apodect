@@ -108,6 +108,7 @@ impl Project {
     #[payable]
     pub fn cancel(&mut self, task_id: u64) {
         self.assert_owner();
+        self.assert_standalone();
         let mut task = self.task(task_id);
         Self::assert_nonterminal(&task);
         require!(
@@ -136,6 +137,7 @@ impl Project {
     #[payable]
     pub fn force_cancel(&mut self, task_id: u64) {
         self.assert_owner();
+        self.assert_standalone();
         let mut task = self.task(task_id);
         Self::assert_nonterminal(&task);
         require!(!task.paused, "TASK_ALREADY_PAUSED");
@@ -155,6 +157,7 @@ impl Project {
     #[payable]
     pub fn reclaim(&mut self, task_id: u64, amount: U128) {
         self.assert_owner();
+        self.assert_standalone();
         let mut task = self.task(task_id);
         Self::assert_nonterminal(&task);
         Self::assert_positive(amount.0);
@@ -207,6 +210,7 @@ impl Project {
     #[payable]
     pub fn continue_task(&mut self, task_id: u64) {
         self.assert_owner();
+        self.assert_standalone();
         let mut task = self.task(task_id);
         require!(
             task.state == TaskState::Active && task.paused,
