@@ -133,7 +133,7 @@ export function WalletPicker({
           extension, then reload.
         </Notice>
       )}
-      <div className="button-row">
+      <div className="button-row wallet-providers">
         {options?.map((option) => (
           <button
             type="button"

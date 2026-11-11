@@ -1516,16 +1516,27 @@ main:focus {
   flex-direction: column;
   gap: 21px;
 }
+.form-stack > .disclosure {
+  margin-top: 0;
+}
 .account-layout {
   display: grid;
   grid-template-columns: minmax(0, 1.5fr) minmax(280px, 1fr);
   gap: 25px;
   align-items: start;
 }
+.account-layout > div > .panel:last-child {
+  margin-bottom: 0;
+}
 .wallet-options {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
+}
+.wallet-providers .button {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .wallet-choice {
   background: var(--paper);
@@ -1580,6 +1591,9 @@ main:focus {
 }
 .wallet-explainer h3:first-child {
   margin-top: 0;
+}
+.wallet-explainer .eyebrow + h3 {
+  margin-top: 10px;
 }
 .definition-list {
   margin: 0;
@@ -1695,7 +1709,10 @@ main:focus {
   margin-bottom: 8px;
 }
 .review-primary > .money {
-  display: block;
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 8px;
   font-size: 1.75rem;
   font-weight: 550;
 }
@@ -2247,6 +2264,9 @@ main:focus {
   }
   .dialog-heading h2 {
     font-size: 1.35rem;
+  }
+  .review-primary > .money {
+    font-size: 1.25rem;
   }
   .wallet-entry {
     padding: 17px;
