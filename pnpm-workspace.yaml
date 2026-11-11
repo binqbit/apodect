@@ -3,3 +3,4 @@ packages:
 
 allowBuilds:
   esbuild@0.28.2: true
+  secp256k1@5.0.1: false

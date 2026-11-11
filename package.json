@@ -8,7 +8,7 @@
   },
   "scripts": {
     "build": "pnpm -r build",
-    "check": "pnpm -r check && pnpm format:check",
+    "check": "pnpm -r check && pnpm -r test && pnpm format:check",
     "format": "prettier --write apps/frontend package.json pnpm-workspace.yaml compose.yaml compose.live.yaml",
     "format:check": "prettier --check apps/frontend package.json pnpm-workspace.yaml compose.yaml compose.live.yaml"
   },
