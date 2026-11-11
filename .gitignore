@@ -7,6 +7,9 @@
 .env
 .env.*
 !.env.example
+node_modules/
+/apps/*/dist/
+/apps/target/
 *.pem
 *.key
 .DS_Store
@@ -16,7 +19,6 @@ __pycache__/
 
 # Contract dependencies and generated build/test output
 /contracts/**/target/
-/contracts/**/node_modules/
 /contracts/ethereum/dependencies/
 /contracts/ethereum/out/
 /contracts/ethereum/cache/

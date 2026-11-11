@@ -1,11 +1,17 @@
 .PHONY: check check-ethereum check-solana check-near check-localnet fmt
 .PHONY: local-up local-down local-status local-check local-smoke local-reset local-logs
-.PHONY: check-crosschain
+.PHONY: check-crosschain check-apps
 
 PYTHON_SOURCES = scripts/crosschain scripts/localnet.py scripts/tests contracts/ethereum/scripts
 CROSSCHAIN_UV = UV_PROJECT_ENVIRONMENT="$(CURDIR)/.localnet/tools/crosschain" PYTHONDONTWRITEBYTECODE=1 uv run --project scripts/crosschain --locked
 
-check: check-ethereum check-solana check-near check-localnet check-crosschain
+check: check-ethereum check-solana check-near check-localnet check-crosschain check-apps
+
+check-apps:
+	cargo fmt --manifest-path apps/Cargo.toml --all -- --check
+	cargo clippy --manifest-path apps/Cargo.toml --workspace --locked --all-targets -- -D warnings
+	pnpm check
+	pnpm build
 
 check-ethereum:
 	./contracts/ethereum/scripts/check.sh
@@ -17,6 +23,8 @@ check-near:
 	./contracts/near/scripts/check.sh
 
 fmt:
+	cargo fmt --manifest-path apps/Cargo.toml --all
+	pnpm format
 	./contracts/ethereum/scripts/fmt.sh
 	./contracts/solana/scripts/fmt.sh
 	./contracts/near/scripts/fmt.sh

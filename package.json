@@ -1,0 +1,20 @@
+{
+  "name": "apodect",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@12.18.0",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "scripts": {
+    "build": "pnpm -r build",
+    "check": "pnpm -r check && pnpm format:check",
+    "format": "prettier --write apps/frontend package.json pnpm-workspace.yaml",
+    "format:check": "prettier --check apps/frontend package.json pnpm-workspace.yaml"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "prettier": "3.9.10",
+    "typescript": "7.0.2"
+  }
+}
