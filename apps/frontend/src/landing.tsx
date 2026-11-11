@@ -4,6 +4,9 @@ import { Brand } from "./ui";
 export function Landing() {
   return (
     <div className="landing">
+      <a className="skip-link" href="#public-content">
+        Skip to content
+      </a>
       <header className="public-header container">
         <Brand />
         <nav aria-label="Main navigation">
@@ -14,7 +17,7 @@ export function Landing() {
           </Link>
         </nav>
       </header>
-      <main>
+      <main id="public-content" tabIndex={-1}>
         <section className="hero container">
           <div className="hero-copy">
             <p className="eyebrow">Multi-chain budget coordination</p>
@@ -26,9 +29,9 @@ export function Landing() {
               <em>Under control.</em>
             </h1>
             <p className="hero-description">
-              Fund the work. Coordinate the liquidity. Track every allocation
-              across Ethereum, Solana and NEAR — with permissions enforced by
-              contracts and actions signed by your wallet.
+              Review requests, fund approved work and track USDC across
+              Ethereum, Solana and NEAR. Your team sets the budget. You review
+              and sign the decisions.
             </p>
             <div className="hero-actions">
               <Link to="/app" className="button">
@@ -45,11 +48,12 @@ export function Landing() {
           </div>
           <div
             className="hero-diagram"
+            role="img"
             aria-label="A project budget coordinates funding for tasks across Ethereum, Solana and NEAR"
           >
             <div className="diagram-grid" aria-hidden="true" />
             <div className="diagram-label">
-              <span>Funding architecture</span>
+              <span>One budget. Three networks.</span>
               <span className="diagram-index">01 — 03</span>
             </div>
             <div className="budget-node">
@@ -144,25 +148,24 @@ export function Landing() {
               <span className="step-number">01</span>
               <h3>Request the budget</h3>
               <p>
-                An agent creates a task on the network where it works, explains
-                the purpose and requests USDC.
+                An agent explains the work and requests USDC on the network
+                where the task runs.
               </p>
             </article>
             <article>
               <span className="step-number">02</span>
               <h3>Approve the work</h3>
               <p>
-                The project manager reviews requests. Approval fixes the amount
-                and its place in the funding queue.
+                The manager reviews the request. Approval sets the budget and
+                its place in the funding queue.
               </p>
             </article>
             <article>
               <span className="step-number">03</span>
               <h3>Coordinate the funds</h3>
               <p>
-                The manager starts funding. Available liquidity is allocated
-                locally or moved across networks, with delivery costs paid by
-                the project.
+                The manager starts funding. Funds move to the task’s network
+                when needed. The project pays delivery costs.
               </p>
             </article>
             <article>
@@ -199,11 +202,14 @@ export function Landing() {
                   unused funds. Pause a task when its next step needs a
                   decision.
                 </p>
-                <ul>
-                  <li>Project funding and withdrawals</li>
-                  <li>Manager appointment</li>
-                  <li>Pause, reclaim and continue</li>
-                </ul>
+                <details className="disclosure">
+                  <summary>Owner controls</summary>
+                  <ul>
+                    <li>Project funding and withdrawals</li>
+                    <li>Manager appointment</li>
+                    <li>Pause, reclaim and continue</li>
+                  </ul>
+                </details>
               </article>
               <article>
                 <span className="role-number">02 / MANAGER</span>
@@ -212,12 +218,15 @@ export function Landing() {
                   Review budgets, follow approval priority and coordinate
                   liquidity. See what is ready, waiting or needs attention.
                 </p>
-                <ul>
-                  <li>Budget approvals and funding plans</li>
-                  <li>Replenishment requests</li>
-                  <li>Delivery and recovery oversight</li>
-                </ul>
-                <small>The manager is the contract’s authority role.</small>
+                <details className="disclosure">
+                  <summary>Manager controls</summary>
+                  <ul>
+                    <li>Budget approvals and funding plans</li>
+                    <li>Replenishment requests</li>
+                    <li>Delivery and recovery oversight</li>
+                  </ul>
+                  <small>The manager is the contract’s authority role.</small>
+                </details>
               </article>
               <article>
                 <span className="role-number">03 / AGENT</span>
@@ -227,11 +236,14 @@ export function Landing() {
                   allocation through your own wallet and account for what
                   remains.
                 </p>
-                <ul>
-                  <li>Task and additional budget requests</li>
-                  <li>Controlled withdrawals</li>
-                  <li>Returns and completion reports</li>
-                </ul>
+                <details className="disclosure">
+                  <summary>Agent controls</summary>
+                  <ul>
+                    <li>Task and additional budget requests</li>
+                    <li>Controlled withdrawals</li>
+                    <li>Returns and completion reports</li>
+                  </ul>
+                </details>
               </article>
             </div>
           </div>

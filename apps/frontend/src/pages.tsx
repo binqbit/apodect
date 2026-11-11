@@ -56,7 +56,7 @@ export function RoleBadges({ roles }: { roles: ProjectRoles }) {
         !roles.authority &&
         !roles.agent &&
         ownedChains.length === 0 && (
-          <span className="role-badge">Connected participant</span>
+          <span className="role-badge">Participant</span>
         )}
     </div>
   );
@@ -255,7 +255,7 @@ export function AccountPage() {
     <>
       <PageTitle
         eyebrow={account ? "Your identity" : "Welcome to Apodect"}
-        title={account ? "Account & wallets" : "One profile. Your own wallets."}
+        title={account ? "Account & wallets" : "Sign in with your wallet"}
         action={
           account && (
             <button
@@ -273,10 +273,7 @@ export function AccountPage() {
           : "Connect a wallet and sign a message to access your projects. No transaction or token approval is needed to sign in."}
       </PageTitle>
       {!account && requestedPath && (
-        <Notice>
-          Sign in to continue to the page you opened. Your submitted
-          transactions remain in this browser’s recovery history.
-        </Notice>
+        <Notice>Sign in to return to the page you opened.</Notice>
       )}
       {message && (
         <Notice tone="success">
@@ -302,28 +299,33 @@ export function AccountPage() {
       <div className="account-layout">
         <div>
           {account && (
-            <Panel title="Profile">
-              <form
-                className="panel-body form-stack"
-                onSubmit={(event) => void rename(event)}
-              >
-                <Field
-                  label="Display name"
-                  hint="Optional. Your name does not change your contract permissions."
+            <Panel
+              title={account.session.profile.display_name ?? "Your profile"}
+            >
+              <details className="disclosure panel-disclosure">
+                <summary>Edit display name</summary>
+                <form
+                  className="panel-body form-stack"
+                  onSubmit={(event) => void rename(event)}
                 >
-                  <input
-                    value={name}
-                    onChange={(event) => setName(event.target.value)}
-                    maxLength={100}
-                    placeholder="How should we call you?"
-                  />
-                </Field>
-                <div>
-                  <button className="button small secondary" disabled={busy}>
-                    Save profile
-                  </button>
-                </div>
-              </form>
+                  <Field
+                    label="Display name"
+                    hint="Optional. This is how your name appears in the workspace."
+                  >
+                    <input
+                      value={name}
+                      onChange={(event) => setName(event.target.value)}
+                      maxLength={100}
+                      placeholder="How should we call you?"
+                    />
+                  </Field>
+                  <div>
+                    <button className="button small secondary" disabled={busy}>
+                      Save profile
+                    </button>
+                  </div>
+                </form>
+              </details>
             </Panel>
           )}
           {account && (
@@ -336,7 +338,7 @@ export function AccountPage() {
                   className="wallet-entry"
                   key={`${wallet.chain}:${wallet.network}:${wallet.address}`}
                 >
-                  <div>
+                  <div className="wallet-identity">
                     <ChainBadge chain={wallet.chain} />
                     <Address value={wallet.address} />
                     {config &&
@@ -364,7 +366,7 @@ export function AccountPage() {
             </Panel>
           )}
           <Panel
-            title={account ? "Link another wallet" : "Connect your wallet"}
+            title={account ? "Link another wallet" : "Choose a network"}
             description={
               account
                 ? "Sign with the new wallet to link it to this profile."
@@ -401,25 +403,27 @@ export function AccountPage() {
                 ["localhost", "127.0.0.1", "[::1]"].includes(
                   location.hostname,
                 ) && (
-                  <details>
+                  <details className="disclosure">
                     <summary>Use a local development wallet</summary>
-                    <Notice>
-                      Import a test wallet exported by your local environment.
-                      Its key stays in memory in this tab and is cleared on
-                      sign-out or reload. Use test keys only.
-                    </Notice>
-                    <Field label="Development wallet JSON">
-                      <input
-                        type="file"
-                        accept="application/json,.json"
-                        disabled={busy}
-                        onChange={(event) => {
-                          const file = event.target.files?.[0];
-                          event.target.value = "";
-                          if (file) void importLocal(file);
-                        }}
-                      />
-                    </Field>
+                    <div className="disclosure-body">
+                      <Notice>
+                        Import a test wallet exported by your local environment.
+                        Its key stays in memory in this tab and is cleared on
+                        sign-out or reload. Use test keys only.
+                      </Notice>
+                      <Field label="Development wallet JSON">
+                        <input
+                          type="file"
+                          accept="application/json,.json"
+                          disabled={busy}
+                          onChange={(event) => {
+                            const file = event.target.files?.[0];
+                            event.target.value = "";
+                            if (file) void importLocal(file);
+                          }}
+                        />
+                      </Field>
+                    </div>
                   </details>
                 )}
             </div>
@@ -430,22 +434,29 @@ export function AccountPage() {
         </div>
         <Panel>
           <div className="panel-body wallet-explainer">
-            <h3>A profile is not a role.</h3>
+            <p className="eyebrow">Wallet access</p>
+            <h3>Your keys. Your approval.</h3>
             <p>
-              Owner and manager permissions are read from each project’s
-              contracts. An agent can create a request, but funds become
-              available only after approval and confirmed funding.
+              Signing in proves wallet ownership. You review and sign financial
+              instructions separately.
             </p>
-            <h3>Use the right wallet for each action.</h3>
-            <p>
-              Management decisions are signed on NEAR. Agent tasks and owner
-              deposits use the wallet on the task or funding network.
-            </p>
-            <h3>Your keys stay with you.</h3>
-            <p>
-              Apodect prepares transactions for your review. The backend never
-              signs as an owner, manager or agent.
-            </p>
+            <details className="disclosure">
+              <summary>How project roles work</summary>
+              <p>
+                Owner and manager permissions come from project contracts.
+                Linking a wallet does not grant a new role. Agents can request a
+                budget; they receive funds only after approval and confirmed
+                funding.
+              </p>
+            </details>
+            <details className="disclosure">
+              <summary>Which wallet signs each action?</summary>
+              <p>
+                Management decisions are signed on NEAR. Agent tasks and owner
+                deposits use the wallet on their execution network. Each action
+                shows the required wallet before you sign.
+              </p>
+            </details>
           </div>
         </Panel>
       </div>
@@ -503,6 +514,12 @@ function WalletHistory({
   const unresolved = accountTransactions.filter((transaction) =>
     ["submitted", "unknown"].includes(transaction.status),
   ).length;
+  const historyDetails = useRef<HTMLDetailsElement>(null);
+  useEffect(() => {
+    if (unresolved > 0 && historyDetails.current) {
+      historyDetails.current.open = true;
+    }
+  }, [unresolved]);
   if (accountTransactions.length === 0) return null;
   return (
     <>
@@ -532,82 +549,91 @@ function WalletHistory({
 
       <Panel
         title="Wallet transactions"
-        description="Submitted transactions survive a page reload. Check uncertain results before starting another payment."
+        description="Saved in this browser, including after a page reload."
       >
         <div id="wallet-transactions" />
-        {[...accountTransactions]
-          .sort(
-            (a, b) =>
-              Number(["submitted", "unknown"].includes(b.status)) -
-              Number(["submitted", "unknown"].includes(a.status)),
-          )
-          .map((transaction) => (
-            <div className="operation-card" key={transaction.id}>
-              <div className="operation-title">
-                <ChainBadge chain={transaction.chain} />
-                <Status value={transaction.status} />
-              </div>
-              <p className="review-note">
-                Wallet <Address value={transaction.actor} />
-              </p>
-              {transaction.transactionId ? (
-                <Address value={transaction.transactionId} />
-              ) : (
+        <details className="disclosure panel-disclosure" ref={historyDetails}>
+          <summary>
+            Transaction history{" "}
+            <span className="disclosure-meta">
+              {accountTransactions.length} recorded
+              {unresolved > 0 ? ` · ${unresolved} need confirmation` : ""}
+            </span>
+          </summary>
+          {[...accountTransactions]
+            .sort(
+              (a, b) =>
+                Number(["submitted", "unknown"].includes(b.status)) -
+                Number(["submitted", "unknown"].includes(a.status)),
+            )
+            .map((transaction) => (
+              <div className="operation-card" key={transaction.id}>
+                <div className="operation-title">
+                  <ChainBadge chain={transaction.chain} />
+                  <Status value={transaction.status} />
+                </div>
                 <p className="review-note">
-                  {transaction.submission === "signed" ||
-                  !transaction.nonceContext
-                    ? "The wallet did not return signed bytes. The application has not broadcast this step."
-                    : "The wallet did not return a transaction hash. It may have submitted the transaction; check the wallet’s activity history."}
+                  Wallet <Address value={transaction.actor} />
                 </p>
-              )}
-              {config &&
-              transaction.network !==
-                networkIdentity(transaction.chain, config) ? (
-                <p className="review-note">
-                  Recorded on another deployment. Check this transaction using
-                  its original network; it cannot be reconciled here.
-                </p>
-              ) : (
-                ["submitted", "unknown"].includes(transaction.status) && (
-                  <div className="form-stack" style={{ marginTop: 15 }}>
-                    {!transaction.transactionId &&
-                      transaction.submission === "wallet" &&
-                      !!transaction.nonceContext && (
-                        <Field
-                          label="Transaction hash from wallet history"
-                          hint="The chain transaction must match the original wallet, destination and exact action before it can resolve this request."
+                {transaction.transactionId ? (
+                  <Address value={transaction.transactionId} />
+                ) : (
+                  <p className="review-note">
+                    {transaction.submission === "signed" ||
+                    !transaction.nonceContext
+                      ? "The wallet did not return signed bytes. The application has not broadcast this step."
+                      : "The wallet did not return a transaction hash. It may have submitted the transaction; check the wallet’s activity history."}
+                  </p>
+                )}
+                {config &&
+                transaction.network !==
+                  networkIdentity(transaction.chain, config) ? (
+                  <p className="review-note">
+                    Recorded on another deployment. Check this transaction using
+                    its original network; it cannot be reconciled here.
+                  </p>
+                ) : (
+                  ["submitted", "unknown"].includes(transaction.status) && (
+                    <div className="form-stack" style={{ marginTop: 15 }}>
+                      {!transaction.transactionId &&
+                        transaction.submission === "wallet" &&
+                        !!transaction.nonceContext && (
+                          <Field
+                            label="Transaction hash from wallet history"
+                            hint="The chain transaction must match the original wallet, destination and exact action before it can resolve this request."
+                          >
+                            <input
+                              value={recoveryHashes[transaction.id] ?? ""}
+                              onChange={(event) =>
+                                setRecoveryHashes((previous) => ({
+                                  ...previous,
+                                  [transaction.id]: event.target.value,
+                                }))
+                              }
+                            />
+                          </Field>
+                        )}
+                      <div className="operation-actions">
+                        <button
+                          className="button secondary small"
+                          disabled={busy}
+                          onClick={() => void recheck(transaction)}
                         >
-                          <input
-                            value={recoveryHashes[transaction.id] ?? ""}
-                            onChange={(event) =>
-                              setRecoveryHashes((previous) => ({
-                                ...previous,
-                                [transaction.id]: event.target.value,
-                              }))
-                            }
-                          />
-                        </Field>
-                      )}
-                    <div className="operation-actions">
-                      <button
-                        className="button secondary small"
-                        disabled={busy}
-                        onClick={() => void recheck(transaction)}
-                      >
-                        {checking === transaction.id
-                          ? "Checking…"
-                          : !transaction.transactionId &&
-                              (transaction.submission === "signed" ||
-                                !transaction.nonceContext)
-                            ? "Dismiss unsubmitted request"
-                            : "Check confirmation"}
-                      </button>
+                          {checking === transaction.id
+                            ? "Checking…"
+                            : !transaction.transactionId &&
+                                (transaction.submission === "signed" ||
+                                  !transaction.nonceContext)
+                              ? "Dismiss unsubmitted request"
+                              : "Check confirmation"}
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                )
-              )}
-            </div>
-          ))}
+                  )
+                )}
+              </div>
+            ))}
+        </details>
       </Panel>
     </>
   );
@@ -673,7 +699,7 @@ export function ProjectsPage() {
               </p>
               <div className="project-card-footer">
                 <div>
-                  <p>Eligible for funding</p>
+                  <p>Available to fund</p>
                   {project.indexed ? (
                     <Money value={project.available} />
                   ) : (

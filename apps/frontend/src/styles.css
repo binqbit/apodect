@@ -690,11 +690,10 @@ li + li {
 }
 .role-cards ul {
   list-style: none;
-  padding: 20px 0 0;
+  padding: 8px 0 0;
   font-size: 0.75rem;
   color: var(--muted);
-  border-top: 1px solid var(--line);
-  margin-top: 24px;
+  margin-top: 0;
 }
 .role-cards li::before {
   content: "+";
@@ -703,7 +702,7 @@ li + li {
   margin-right: 10px;
 }
 .role-cards small {
-  font-size: 0.68rem;
+  font-size: 0.75rem;
   color: var(--muted);
   display: block;
   margin-top: 16px;
@@ -1361,7 +1360,7 @@ main:focus {
   background: var(--accent-soft);
 }
 .wallet-choice span:last-child {
-  font-size: 0.73rem;
+  font-size: 0.75rem;
 }
 .wallet-entry {
   display: flex;
@@ -1375,8 +1374,12 @@ main:focus {
 .wallet-entry:last-child {
   border-bottom: 0;
 }
-.wallet-entry .chain {
-  margin-bottom: 7px;
+.wallet-identity {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
 }
 .wallet-entry .address {
   display: block;
@@ -1388,7 +1391,7 @@ main:focus {
   color: var(--muted);
 }
 .wallet-explainer h3 {
-  color: var(--muted);
+  color: var(--ink);
   margin: 22px 0 10px;
 }
 .wallet-explainer h3:first-child {
@@ -1947,11 +1950,11 @@ main:focus {
   .wallet-choice .chain {
     flex-direction: column;
     align-items: flex-start;
-    font-size: 0.65rem;
+    font-size: 0.75rem;
     gap: 5px;
   }
   .wallet-choice span:last-child {
-    font-size: 0.65rem;
+    font-size: 0.75rem;
   }
   .action-dialog {
     padding: 23px;
