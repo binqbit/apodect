@@ -135,6 +135,9 @@ a simulator deployment. Public networks use installed Ethereum/Solana wallets or
 MyNearWallet. Keep the application URL equal to `APP_ORIGIN`; mutations from a
 different origin are rejected.
 
+The development server blocks private runtime and workspace directories. Import
+the exported wallet JSON from disk through the file picker.
+
 ## Development and local workflows
 
 Frontend source edits use Vite hot reload through bind mounts. For Rust source
