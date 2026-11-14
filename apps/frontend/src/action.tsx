@@ -168,6 +168,7 @@ export function ActionDialog({
     report: "",
     existingReference: false,
     manager: "",
+    managerProfile: null,
     attempts: String(project.retry_limit),
     slippage: "0.5",
     minutes: "20",
@@ -728,6 +729,7 @@ export function ActionDialog({
                 disabled={
                   busy ||
                   !actor ||
+                  (kind === "set_authority" && !values.manager.trim()) ||
                   (needsToken && (tokenLoading || !!tokenError))
                 }
               >

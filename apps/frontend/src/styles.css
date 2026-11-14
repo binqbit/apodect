@@ -1192,6 +1192,72 @@ button.text-link {
   width: 14px;
   height: 14px;
 }
+.project-access {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px 28px;
+  padding: 16px 20px;
+  margin-bottom: 24px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--paper);
+}
+.project-access-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 0 1 auto;
+}
+.project-access-label {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+.project-access-capabilities {
+  flex: 1 1 280px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.7;
+}
+#invite {
+  scroll-margin-top: 24px;
+}
+#invite:focus {
+  outline: none;
+}
+.invite-link-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 18px;
+}
+.invite-link-row .review-note {
+  flex: 1 1 210px;
+}
+.invite-link-value {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+  max-width: 100%;
+}
+.invite-link-value .text-link {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.invite-steps {
+  display: grid;
+  gap: 14px;
+  color: var(--muted);
+  font-size: 0.85rem;
+  line-height: 1.8;
+}
+.invite-steps strong {
+  color: var(--ink);
+}
 .stats {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1861,6 +1927,103 @@ main:focus {
 }
 .network-option:hover .network-option-content {
   border-color: var(--accent);
+}
+.profile-summary {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.profile-avatar {
+  display: grid;
+  place-items: center;
+  flex: 0 0 44px;
+  height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 1.1rem;
+}
+.profile-summary > div,
+.manager-profile-name {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.profile-summary > div > span {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+.username-input {
+  display: flex;
+  align-items: center;
+  position: relative;
+}
+.username-input > span {
+  position: absolute;
+  left: 14px;
+  color: var(--muted);
+}
+.username-input input {
+  padding-left: 34px;
+}
+.manager-search {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px 12px;
+}
+.manager-search > .field {
+  display: contents;
+}
+.manager-search label,
+.manager-search small {
+  grid-column: 1 / -1;
+}
+.manager-search > button {
+  grid-column: 2;
+  grid-row: 2;
+}
+.manager-wallet-options {
+  margin: 16px 0 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.manager-wallet-options legend {
+  padding: 0 0 8px;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+.manager-wallet-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px;
+  margin-top: 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+.manager-wallet-option:has(:checked) {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.manager-wallet-option input {
+  flex-shrink: 0;
+  accent-color: var(--accent);
+}
+.manager-wallet-option > span {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.manager-wallet-address {
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
 }
 .wallet-entry {
   display: flex;
@@ -2575,6 +2738,17 @@ main:focus {
     position: absolute;
     top: 12px;
     right: 8px;
+  }
+  .manager-search {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .manager-search > button {
+    grid-column: 1;
+    grid-row: 4;
+    justify-self: start;
+  }
+  .project-access {
+    padding: 16px;
   }
   .action-dialog {
     padding: 23px;

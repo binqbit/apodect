@@ -130,9 +130,10 @@ async fn wallet_identity_lifecycle() -> Result<()> {
             .is_err()
     );
     let profile = accounts
-        .update_display_name(&first.session_token, Some("  Alice  "))
+        .update_profile(&first.session_token, Some("  Alice  "), Some(" Alice "))
         .await?;
     assert_eq!(profile.display_name.as_deref(), Some("Alice"));
+    assert_eq!(profile.username.as_deref(), Some("alice"));
 
     let (a, b) = tokio::try_join!(
         accounts.begin_login(Chain::Solana, &address),
@@ -365,7 +366,7 @@ async fn assert_action_authorization(
         "ethereum":{"rpc_url":rpc_url,"chain_id":31337,"genesis_hash":format!("0x{}","11".repeat(32))},
         "solana":{"rpc_url":rpc_url,"genesis_hash":bs58::encode([3;32]).into_string()},
         "near":{"rpc_url":rpc_url,"genesis":genesis},
-        "projects":[{"ethereum_start_block":0,"coordinator":"coordinator.near","project_id":"aa".repeat(32),"domains":{
+        "projects":[{"name":"Test project","ethereum_start_block":0,"coordinator":"coordinator.near","project_id":"aa".repeat(32),"domains":{
             "ethereum":{"domain":"02".repeat(32),"vault":"0x1111111111111111111111111111111111111111","asset":"0x2222222222222222222222222222222222222222","asset_id":"eth-usdc"},
             "solana":{"domain":"03".repeat(32),"vault":bs58::encode([4;32]).into_string(),"asset":bs58::encode([5;32]).into_string(),"asset_id":"sol-usdc"},
             "near":{"domain":"01".repeat(32),"vault":"vault.near","asset":"usdc.near","asset_id":"near-usdc"}

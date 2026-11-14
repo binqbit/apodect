@@ -61,7 +61,41 @@ pub struct Challenge {
 pub struct Profile {
     pub id: Uuid,
     pub display_name: Option<String>,
+    pub username: Option<String>,
 }
+
+#[derive(Serialize)]
+pub struct ProfileLookup {
+    pub profile: Profile,
+    pub wallets: Vec<Wallet>,
+}
+
+#[derive(Debug)]
+pub enum ProfileError {
+    InvalidName,
+    InvalidUsername,
+    UsernameTaken,
+}
+
+impl ProfileError {
+    pub fn message(&self) -> &'static str {
+        match self {
+            Self::InvalidName => "Enter a name with 1 to 100 printable characters.",
+            Self::InvalidUsername => {
+                "Use 3 to 32 letters, numbers or underscores for your username, starting with a letter."
+            }
+            Self::UsernameTaken => "This username is already taken. Choose another one.",
+        }
+    }
+}
+
+impl std::fmt::Display for ProfileError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.message())
+    }
+}
+
+impl std::error::Error for ProfileError {}
 
 #[derive(Clone, Debug, Serialize, FromRow)]
 pub struct Wallet {
@@ -101,6 +135,7 @@ struct ChallengeRow {
 struct SessionRow {
     profile_id: Uuid,
     display_name: Option<String>,
+    username: Option<String>,
     chain: String,
     network: String,
     address: String,
@@ -366,7 +401,7 @@ impl Accounts {
         let digest = token_hash(session_token)?;
         let row: SessionRow = sqlx::query_as(
             r#"
-            SELECT w.profile_id,p.display_name,s.chain,s.network,s.address,s.proof,s.expires_at
+            SELECT w.profile_id,p.display_name,p.username,s.chain,s.network,s.address,s.proof,s.expires_at
             FROM sessions s
             JOIN wallets w USING(chain,network,address)
             JOIN profiles p ON p.id=w.profile_id
@@ -400,6 +435,7 @@ impl Accounts {
             profile: Profile {
                 id: row.profile_id,
                 display_name: row.display_name,
+                username: row.username,
             },
             wallet: Wallet {
                 chain: row.chain,
@@ -467,10 +503,11 @@ impl Accounts {
             .context("actor wallet is not linked to this profile on the configured network")
     }
 
-    pub async fn update_display_name(
+    pub async fn update_profile(
         &self,
         session_token: &str,
         name: Option<&str>,
+        username: Option<&str>,
     ) -> Result<Profile> {
         let session = self.session(session_token).await?;
         let name = name.map(str::trim);
@@ -479,20 +516,74 @@ impl Accounts {
                 !name.is_empty()
                     && name.chars().count() <= 100
                     && !name.chars().any(char::is_control),
-                "display name must contain 1..100 printable characters"
+                ProfileError::InvalidName
             );
         }
+        let username = username.map(normalize_username).transpose()?;
         let mut transaction = self.pool.begin().await?;
         lock_session(&mut transaction, &token_hash(session_token)?).await?;
         let profile = sqlx::query_as(
-            "UPDATE profiles SET display_name=$2 WHERE id=$1 RETURNING id,display_name",
+            "UPDATE profiles SET display_name=$2,username=$3 WHERE id=$1 RETURNING id,display_name,username",
         )
         .bind(session.profile.id)
         .bind(name)
+        .bind(username)
         .fetch_one(&mut *transaction)
-        .await?;
+        .await
+        .map_err(|error| {
+            if error.as_database_error().is_some_and(|error| {
+                error.is_unique_violation() && error.constraint() == Some("profiles_username_key")
+            }) {
+                anyhow::Error::new(ProfileError::UsernameTaken)
+            } else {
+                error.into()
+            }
+        })?;
         transaction.commit().await?;
         Ok(profile)
+    }
+
+    /// A username opts into exact lookup; it never grants project permissions.
+    pub async fn profile_by_username(
+        &self,
+        session_token: &str,
+        username: &str,
+    ) -> Result<Option<ProfileLookup>> {
+        self.session(session_token).await?;
+        let username = normalize_username(username)?;
+        let profile: Option<Profile> =
+            sqlx::query_as("SELECT id,display_name,username FROM profiles WHERE username=$1")
+                .bind(username)
+                .fetch_optional(&self.pool)
+                .await?;
+        let Some(profile) = profile else {
+            return Ok(None);
+        };
+        let records: Vec<(String, String, String, Option<String>)> = sqlx::query_as(
+            "SELECT chain,network,address,near_public_key FROM wallets WHERE profile_id=$1 \
+             AND ((chain='ethereum' AND network=$2) OR (chain='solana' AND network=$3) \
+             OR (chain='near' AND network=$4)) ORDER BY chain,address",
+        )
+        .bind(profile.id)
+        .bind(self.network(Chain::Ethereum))
+        .bind(self.network(Chain::Solana))
+        .bind(self.network(Chain::Near))
+        .fetch_all(&self.pool)
+        .await?;
+        let mut wallets = Vec::with_capacity(records.len());
+        for (chain, network, address, near_public_key) in records {
+            if let Some(public_key) = near_public_key
+                && !self.near_key_is_current(&address, &public_key).await?
+            {
+                continue;
+            }
+            wallets.push(Wallet {
+                chain,
+                network,
+                address,
+            });
+        }
+        Ok(Some(ProfileLookup { profile, wallets }))
     }
 
     pub async fn purge_expired(pool: &PgPool) -> Result<()> {
@@ -776,11 +867,25 @@ async fn save_wallet(
 
 async fn read_profile(connection: &mut PgConnection, id: Uuid) -> Result<Profile> {
     Ok(
-        sqlx::query_as("SELECT id,display_name FROM profiles WHERE id=$1")
+        sqlx::query_as("SELECT id,display_name,username FROM profiles WHERE id=$1")
             .bind(id)
             .fetch_one(connection)
             .await?,
     )
+}
+
+fn normalize_username(value: &str) -> Result<String> {
+    let value = value.trim();
+    let value = value.strip_prefix('@').unwrap_or(value);
+    ensure!(
+        (3..=32).contains(&value.len())
+            && value.as_bytes()[0].is_ascii_alphabetic()
+            && value
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_'),
+        ProfileError::InvalidUsername
+    );
+    Ok(value.to_ascii_lowercase())
 }
 
 fn normalize_address(chain: Chain, address: &str) -> Result<String> {

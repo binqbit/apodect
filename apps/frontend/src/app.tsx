@@ -29,7 +29,7 @@ import { Landing } from "./landing";
 import { Guide } from "./guide";
 import { AccountPage, ProjectsPage } from "./pages";
 import { ProjectPage } from "./project";
-import { Brand, ErrorState, GuideLink, Loading, short } from "./ui";
+import { Brand, ErrorState, GuideLink, Loading } from "./ui";
 import { Icon } from "./icons";
 
 interface SessionContext {
@@ -206,7 +206,9 @@ function WorkspaceLayout() {
             <span className="account-name">
               {account
                 ? (account.session.profile.display_name ??
-                  short(account.session.wallet.address, 5))
+                  (account.session.profile.username
+                    ? `@${account.session.profile.username}`
+                    : "Your account"))
                 : "Connect wallet"}
             </span>
           </Link>
@@ -245,7 +247,7 @@ function Authenticated({ children }: { children: ReactNode }) {
 }
 
 function RouteFocus() {
-  const { pathname } = useLocation();
+  const { pathname, hash } = useLocation();
   const previousPath = useRef(pathname);
   useEffect(() => {
     if (pathname === "/")
@@ -254,11 +256,17 @@ function RouteFocus() {
     previousPath.current = pathname;
     if (pathname === "/guide") return;
     const frame = requestAnimationFrame(() => {
+      const destination = hash && document.getElementById(hash.slice(1));
+      if (destination) {
+        destination.focus({ preventScroll: true });
+        destination.scrollIntoView({ block: "start" });
+        return;
+      }
       document.querySelector<HTMLElement>("main")?.focus();
       window.scrollTo(0, 0);
     });
     return () => cancelAnimationFrame(frame);
-  }, [pathname]);
+  }, [pathname, hash]);
   return null;
 }
 

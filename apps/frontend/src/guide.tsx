@@ -74,8 +74,9 @@ export function Guide() {
           <strong>Start with your wallet</strong>
           <p>
             Open the workspace, choose a network and sign in. Your first sign-in
-            creates a profile. Open a project, then follow the guide for your
-            role below. One person can have several roles.
+            creates a profile. Add your name and username in Account & wallets.
+            Open a project to see your role and available actions, then follow
+            the guide below. One person can have several roles.
           </p>
           <Link className="text-link" to="/app">
             Open workspace →
@@ -103,9 +104,11 @@ export function Guide() {
                 synchronized.
               </li>
               <li>
-                <strong>Choose a manager.</strong> Settings shows the manager
-                who reviews requests. Replace manager changes that authority;
-                signing in does not assign it.
+                <strong>Choose a manager.</strong> Invite people lets you share
+                the project link. Ask the person to set a username and link a
+                NEAR wallet, then choose Replace manager. Find their @username,
+                select their wallet and review the change before signing. This
+                replaces the project’s single manager.
               </li>
               <li>
                 <strong>Monitor the work.</strong> Overview shows the budget and
@@ -249,6 +252,17 @@ export function Guide() {
         <section className="guide-section" id="wallets" tabIndex={-1}>
           <p className="eyebrow">Access & confirmation</p>
           <h2>Your profile, wallets and signatures.</h2>
+          <details className="disclosure">
+            <summary>How do I join a project or invite someone?</summary>
+            <p>
+              Open the project link and sign in; you return to the project after
+              verifying your wallet. Agents can create tasks and request a
+              budget immediately. To become the manager, set a username and link
+              a NEAR wallet in Account & wallets, then ask the owner to appoint
+              you. Sharing a link or setting a username does not grant
+              management permissions.
+            </p>
+          </details>
           <details className="disclosure">
             <summary>Which wallet should I use?</summary>
             <p>

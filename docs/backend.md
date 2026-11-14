@@ -109,8 +109,10 @@ Start authentication with `login_challenge` and the `chain` and `address`.
 Sign its returned message using that chain's wallet standard; `login` accepts
 `challenge`, `signature` and, for NEAR, `public_key`. It returns the session token.
 `link_challenge` additionally takes `session`; `link_wallet` consumes that
-challenge with the same session. `profile`, `rename_profile` and `logout` use
-the session token.
+challenge with the same session. `profile`, `update_profile` and `logout` use
+the session token. `update_profile` saves `name` and `username` (either may be null).
+Choosing a username makes the profile and its verified addresses discoverable
+by that exact handle to signed-in users; it does not grant a project role.
 
 `prepare_local` accepts the session, Project key, actor address, chain and a typed
 action: create task, request budget, withdraw, return funds, release, finalize or

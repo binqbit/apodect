@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, NavLink, useLocation, useParams } from "react-router-dom";
 import { api, type ProjectDetail } from "./api";
 import { ActionDialog, type ActionTarget } from "./action";
@@ -6,11 +6,13 @@ import { RoleBadges } from "./pages";
 import { Tasks, currentRequest, taskStatus } from "./tasks";
 import { Funding } from "./funding";
 import { Activity } from "./activity";
+import { Icon } from "./icons";
 import {
   Address,
   ChainBadge,
   Empty,
   ErrorState,
+  Field,
   GuideLink,
   Loading,
   Money,
@@ -19,6 +21,8 @@ import {
   Panel,
   ReferenceContent,
   Status,
+  chainNames,
+  chains,
   short,
   useLoad,
 } from "./ui";
@@ -51,24 +55,32 @@ export function ProjectPage() {
         title={project.name}
         action={
           <div className="button-row">
+            <Link
+              to={`${base}/settings#invite`}
+              className="button secondary small"
+            >
+              <Icon name="link" />
+              Invite people
+            </Link>
             <button
               className="button secondary small"
               disabled={result.loading}
               onClick={result.refresh}
             >
+              <Icon name="refresh" />
               Refresh
             </button>
             <button
               className="button small"
               onClick={() => setAction({ kind: "create_task" })}
             >
-              New task +
+              <Icon name="plus" />
+              New task
             </button>
           </div>
         }
       >
         <span className="inline-meta">
-          <RoleBadges roles={project.roles} />
           <span>
             Updated{" "}
             {project.observed_at
@@ -77,6 +89,7 @@ export function ProjectPage() {
           </span>
         </span>
       </PageTitle>
+      <ProjectAccess project={project} />
       {result.error !== undefined && (
         <Notice tone="error">
           Refresh failed. Displaying the last observed state; available balances
@@ -114,7 +127,9 @@ export function ProjectPage() {
       {tab === "activity" && (
         <Activity key={project.key} project={project} act={setAction} />
       )}
-      {tab === "settings" && <Settings project={project} act={setAction} />}
+      {tab === "settings" && (
+        <Settings key={project.key} project={project} act={setAction} />
+      )}
       {!["overview", "tasks", "funding", "activity", "settings"].includes(
         tab,
       ) && (
@@ -137,6 +152,49 @@ export function ProjectPage() {
         />
       )}
     </>
+  );
+}
+
+function ProjectAccess({ project }: { project: ProjectDetail }) {
+  const { roles } = project;
+  const ownedNetworks = chains.filter((chain) => roles.local_owners[chain]);
+  const participant = !roles.owner && !roles.authority && !roles.agent;
+  return (
+    <section className="project-access" aria-labelledby="project-role-title">
+      <div className="project-access-heading">
+        <p className="project-access-label" id="project-role-title">
+          Your role in this project
+        </p>
+        <RoleBadges roles={roles} />
+      </div>
+      <div className="project-access-capabilities">
+        {roles.owner && (
+          <p>Control project funding and choose its single manager.</p>
+        )}
+        {roles.authority && (
+          <p>Review budget requests and coordinate funding in queue order.</p>
+        )}
+        {roles.agent && (
+          <p>
+            Manage your own tasks, withdraw confirmed allocation and return
+            unused funds.
+          </p>
+        )}
+        {ownedNetworks.length > 0 && (
+          <p>
+            You own the vaults on{" "}
+            {ownedNetworks.map((chain) => chainNames[chain]).join(", ")} and can
+            add funds from their registered owner wallets.
+          </p>
+        )}
+        {participant && (
+          <p>
+            You can create a task and request a budget. Owner or manager
+            permission is required to manage the project.
+          </p>
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -467,8 +525,119 @@ function Settings({
   project: ProjectDetail;
   act: (action: ActionTarget) => void;
 }) {
+  const route = useLocation();
+  const invite = useRef<HTMLDivElement>(null);
+  const [copyState, setCopyState] = useState<
+    "ready" | "copying" | "copied" | "manual"
+  >("ready");
+  const projectUrl = `${window.location.origin}/app/projects/${encodeURIComponent(project.key)}`;
+  useEffect(() => {
+    if (route.hash !== "#invite") return;
+    invite.current?.scrollIntoView({ block: "start" });
+    invite.current?.focus({ preventScroll: true });
+  }, [route.hash]);
+  useEffect(() => {
+    if (copyState !== "copied") return;
+    const timer = window.setTimeout(() => setCopyState("ready"), 2500);
+    return () => window.clearTimeout(timer);
+  }, [copyState]);
+  async function copyProjectLink() {
+    setCopyState("copying");
+    try {
+      await navigator.clipboard.writeText(projectUrl);
+      setCopyState("copied");
+    } catch {
+      setCopyState("manual");
+    }
+  }
   return (
     <>
+      <div id="invite" ref={invite} tabIndex={-1}>
+        <Panel
+          title="Invite people"
+          description="Share this workspace with an agent or someone you want to appoint as manager."
+        >
+          <div className="panel-body form-stack">
+            <div className="invite-link-row">
+              <span className="invite-link-value">
+                <Link
+                  className="text-link"
+                  to={`/app/projects/${encodeURIComponent(project.key)}`}
+                  title={projectUrl}
+                >
+                  {project.name}
+                </Link>
+                <button
+                  type="button"
+                  className="copy-button"
+                  aria-label="Copy project link"
+                  title="Copy project link"
+                  disabled={copyState === "copying"}
+                  onClick={() => void copyProjectLink()}
+                >
+                  <Icon name={copyState === "copied" ? "check" : "copy"} />
+                </button>
+                <span className="copy-feedback" role="status">
+                  {copyState === "copying"
+                    ? "Copying…"
+                    : copyState === "copied"
+                      ? "Copied"
+                      : copyState === "manual"
+                        ? "Copy the link below"
+                        : ""}
+                </span>
+              </span>
+              <span className="review-note">
+                Sharing the link does not grant permissions.
+              </span>
+            </div>
+            {copyState === "manual" && (
+              <Field
+                label="Project link"
+                hint="Clipboard access is unavailable. Select and copy this link manually."
+              >
+                <input
+                  value={projectUrl}
+                  readOnly
+                  onFocus={(event) => event.currentTarget.select()}
+                />
+              </Field>
+            )}
+            <div className="invite-steps">
+              <p>
+                <strong>For agents:</strong> open the link, sign in and choose
+                New task to request a budget. An agent needs manager approval
+                and confirmed funding before withdrawing funds.
+              </p>
+              <p>
+                <strong>For a new manager:</strong> sign in, set a username and
+                link a NEAR wallet in Account & wallets. The owner can then find
+                that @username and choose its verified wallet.
+              </p>
+            </div>
+            <p className="review-note">
+              This project has one manager. Appointing someone replaces the
+              current manager after the owner reviews and signs the change.
+            </p>
+            {project.roles.owner ? (
+              <div className="button-row">
+                <button
+                  className="button secondary small"
+                  onClick={() => act({ kind: "set_authority" })}
+                >
+                  <Icon name="manager" />
+                  Replace manager
+                </button>
+              </div>
+            ) : (
+              <p className="review-note">
+                Only the project owner can replace the manager. You can share
+                the link with agents without changing project permissions.
+              </p>
+            )}
+          </div>
+        </Panel>
+      </div>
       <Panel
         title="Project permissions"
         description="Roles are enforced by the contracts. Linking a wallet to a profile does not grant one."
@@ -496,12 +665,6 @@ function Settings({
             <div className="button-row" style={{ marginTop: 23 }}>
               <button
                 className="button secondary small"
-                onClick={() => act({ kind: "set_authority" })}
-              >
-                Replace manager
-              </button>
-              <button
-                className="button secondary small"
                 onClick={() => act({ kind: "set_retry_limit" })}
               >
                 Change retry limit
@@ -514,6 +677,27 @@ function Settings({
         title="Contract deployments"
         description="Verify custody addresses and the last indexed block or slot for each network."
       >
+        <details className="disclosure deployment-details">
+          <summary>Project identifiers</summary>
+          <dl className="definition-list disclosure-body">
+            <div>
+              <dt>Coordinator · NEAR</dt>
+              <dd>
+                <Address value={project.coordinator} full />
+              </dd>
+            </div>
+            <div>
+              <dt>On-chain project ID</dt>
+              <dd>{project.project_id}</dd>
+            </div>
+            <div>
+              <dt>Workspace key</dt>
+              <dd>
+                <Address value={project.key} full />
+              </dd>
+            </div>
+          </dl>
+        </details>
         {project.chains.map((chain) => (
           <details className="disclosure deployment-details" key={chain.chain}>
             <summary>

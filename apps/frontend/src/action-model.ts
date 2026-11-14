@@ -5,6 +5,7 @@ import type {
   InvoiceView,
   LocalAction,
   PlanView,
+  ProfileLookup,
   ProjectDetail,
   RequestView,
   TaskView,
@@ -202,7 +203,7 @@ export const copy: Record<ActionKind, { title: string; description: string }> =
     set_authority: {
       title: "Replace project manager",
       description:
-        "Appoint a new NEAR authority. Existing approved tasks and funding deliveries continue; the new account receives management permissions.",
+        "Choose a person by username or enter their NEAR account. Confirming this action replaces the current manager; existing approved tasks and funding deliveries continue.",
     },
     set_retry_limit: {
       title: "Change recovery limit",
@@ -339,6 +340,7 @@ export interface ActionFieldsValue {
   report: string;
   existingReference: boolean;
   manager: string;
+  managerProfile: ProfileLookup | null;
   attempts: string;
   slippage: string;
   minutes: string;
@@ -403,6 +405,10 @@ export function buildCoordinatorAction(
   const plan = target.plan?.id ?? "";
   switch (kind) {
     case "set_authority":
+      if (!manager.trim())
+        throw new Error(
+          "Choose a manager’s verified NEAR wallet or enter their NEAR account.",
+        );
       return { action: kind, account: manager.trim() };
     case "set_retry_limit":
       if (

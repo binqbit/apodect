@@ -211,12 +211,17 @@ export function AccountPage() {
     chains.includes(route.state?.chain) ? route.state.chain : "ethereum",
   );
   const [name, setName] = useState("");
+  const [username, setUsername] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState<unknown>();
   const [busy, setBusy] = useState(false);
   useEffect(
     () => setName(account?.session.profile.display_name ?? ""),
     [account?.session.profile.display_name],
+  );
+  useEffect(
+    () => setUsername(account?.session.profile.username ?? ""),
+    [account?.session.profile.username],
   );
   async function authenticate(wallet: ConnectedWallet) {
     setBusy(true);
@@ -265,7 +270,7 @@ export function AccountPage() {
     setError(undefined);
     setMessage("");
     try {
-      await api.rename(name.trim() || null);
+      await api.updateProfile(name.trim() || null, username.trim() || null);
       await refreshAccount();
       setMessage("Profile updated.");
     } catch (failure) {
@@ -343,24 +348,68 @@ export function AccountPage() {
         <div>
           {account && (
             <Panel
-              title={account.session.profile.display_name ?? "Your profile"}
+              title="Your profile"
+              description="Help people recognize you and find you by username."
             >
-              <details className="disclosure panel-disclosure">
-                <summary>Edit display name</summary>
+              <div className="profile-summary panel-body">
+                <span className="profile-avatar" aria-hidden="true">
+                  {account.session.profile.display_name
+                    ?.slice(0, 1)
+                    .toUpperCase() || <Icon name="user" />}
+                </span>
+                <div>
+                  <strong>
+                    {account.session.profile.display_name || "Add your name"}
+                  </strong>
+                  <span>
+                    {account.session.profile.username
+                      ? `@${account.session.profile.username}`
+                      : "Choose a username so others can find you"}
+                  </span>
+                </div>
+              </div>
+              <details
+                className="disclosure panel-disclosure"
+                open={!account.session.profile.username}
+              >
+                <summary>Edit profile</summary>
                 <form
                   className="panel-body form-stack"
                   onSubmit={(event) => void rename(event)}
                 >
                   <Field
-                    label="Display name"
-                    hint="Optional. This is how your name appears in the workspace."
+                    label="Name"
+                    hint="The name people will see on your profile."
                   >
                     <input
                       value={name}
+                      disabled={busy}
                       onChange={(event) => setName(event.target.value)}
                       maxLength={100}
-                      placeholder="How should we call you?"
+                      autoComplete="name"
+                      placeholder="Your name"
                     />
+                  </Field>
+                  <Field
+                    label="Username"
+                    hint="Optional. 3–32 letters, numbers or underscores; start with a letter. A username makes your name and linked wallet addresses discoverable to signed-in users."
+                  >
+                    <div className="username-input">
+                      <span aria-hidden="true">@</span>
+                      <input
+                        value={username}
+                        disabled={busy}
+                        onChange={(event) =>
+                          setUsername(event.target.value.toLowerCase())
+                        }
+                        autoComplete="username"
+                        autoCapitalize="none"
+                        spellCheck={false}
+                        pattern="[a-z][a-z0-9_]{2,31}"
+                        maxLength={32}
+                        placeholder="your_username"
+                      />
+                    </div>
                   </Field>
                   <div>
                     <button className="button small secondary" disabled={busy}>

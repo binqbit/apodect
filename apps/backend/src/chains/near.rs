@@ -479,7 +479,7 @@ impl NearClient {
         public_key
             .parse::<near_crypto::PublicKey>()
             .context("invalid NEAR public key")?;
-        let key: Value = self
+        let key: Value = match self
             .rpc
             .call(
                 "query",
@@ -490,7 +490,29 @@ impl NearClient {
                     "public_key": public_key,
                 }),
             )
-            .await?;
+            .await
+        {
+            Ok(key) => key,
+            Err(error) => {
+                if let Some(cause) = error
+                    .downcast_ref::<RpcError>()
+                    .and_then(|rpc| rpc.cause.as_ref())
+                {
+                    let info = &cause["info"];
+                    let absent = (cause["name"] == "UNKNOWN_ACCESS_KEY"
+                        && info["public_key"] == public_key)
+                        || (cause["name"] == "UNKNOWN_ACCOUNT"
+                            && info["requested_account_id"] == account);
+                    if absent
+                        && info["block_hash"] == block.hash
+                        && info["block_height"] == block.height
+                    {
+                        return Ok(false);
+                    }
+                }
+                return Err(error);
+            }
+        };
         ensure!(
             key["block_hash"] == block.hash && key["block_height"] == block.height,
             "NEAR access key read returned a different block"

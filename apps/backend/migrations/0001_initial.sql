@@ -95,7 +95,8 @@ CREATE TABLE outbox (
 
 CREATE TABLE profiles (
     id uuid PRIMARY KEY,
-    display_name text CHECK (display_name IS NULL OR char_length(display_name) BETWEEN 1 AND 100)
+    display_name text CHECK (display_name IS NULL OR char_length(display_name) BETWEEN 1 AND 100),
+    username text UNIQUE CHECK (username IS NULL OR username ~ '^[a-z][a-z0-9_]{2,31}$')
 );
 
 CREATE TABLE wallets (

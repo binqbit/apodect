@@ -1,5 +1,14 @@
+import { useEffect, useRef, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-import type { Chain, FundingCosts, ProjectDetail, UnsignedIntent } from "./api";
+import {
+  api,
+  ApiError,
+  type Chain,
+  type FundingCosts,
+  type ProfileLookup,
+  type ProjectDetail,
+  type UnsignedIntent,
+} from "./api";
 import {
   amountKinds,
   purposeKinds,
@@ -21,6 +30,184 @@ import {
   chainNames,
   money,
 } from "./ui";
+
+function ManagerPicker({
+  manager,
+  profile,
+  change,
+  disabled,
+}: {
+  manager: string;
+  profile: ProfileLookup | null;
+  change: ChangeField;
+  disabled: boolean;
+}) {
+  const [username, setUsername] = useState(profile?.profile.username ?? "");
+  const [manual, setManual] = useState(Boolean(manager && !profile));
+  const [searching, setSearching] = useState(false);
+  const [error, setError] = useState("");
+  const requestVersion = useRef(0);
+  useEffect(
+    () => () => {
+      requestVersion.current += 1;
+    },
+    [],
+  );
+
+  function clearSelection() {
+    requestVersion.current += 1;
+    setSearching(false);
+    setError("");
+    change("manager", "");
+    change("managerProfile", null);
+  }
+
+  async function findProfile() {
+    const name = username.trim().replace(/^@/, "");
+    if (!name || disabled || searching) return;
+    clearSelection();
+    const version = requestVersion.current;
+    setSearching(true);
+    try {
+      const result = await api.profileByUsername(name);
+      if (version !== requestVersion.current) return;
+      change("managerProfile", result);
+    } catch (failure) {
+      if (version !== requestVersion.current) return;
+      setError(
+        failure instanceof ApiError && failure.code === "profile_not_found"
+          ? "No profile has this username. Check the spelling or ask them to set a username in Account & wallets."
+          : failure instanceof ApiError && failure.status === 503
+            ? "Linked wallets could not be verified right now. Try again shortly."
+            : failure instanceof Error
+              ? failure.message
+              : "The profile could not be found. Try again.",
+      );
+    } finally {
+      if (version === requestVersion.current) setSearching(false);
+    }
+  }
+
+  const nearWallets =
+    profile?.wallets.filter((wallet) => wallet.chain === "near") ?? [];
+  return (
+    <div className="manager-picker form-stack">
+      {!manual && (
+        <>
+          <div className="manager-search">
+            <Field
+              label="New manager’s username"
+              hint="Find an exact @username, then choose their verified NEAR wallet."
+            >
+              <input
+                value={username}
+                onChange={(event) => {
+                  setUsername(event.target.value);
+                  clearSelection();
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    void findProfile();
+                  }
+                }}
+                placeholder="@username"
+                autoComplete="off"
+                autoCapitalize="none"
+                spellCheck={false}
+              />
+            </Field>
+            <button
+              type="button"
+              className="button secondary"
+              onClick={() => void findProfile()}
+              disabled={disabled || searching || !username.trim()}
+            >
+              {searching ? "Finding profile…" : "Find profile"}
+            </button>
+          </div>
+          {error && <Notice tone="error">{error}</Notice>}
+          {profile && (
+            <div className="manager-profile review" aria-live="polite">
+              <div className="manager-profile-name">
+                {profile.profile.display_name && (
+                  <strong>{profile.profile.display_name}</strong>
+                )}
+                <span>@{profile.profile.username}</span>
+              </div>
+              {nearWallets.length === 0 ? (
+                <p className="review-note">
+                  This profile has no verified NEAR wallet for this environment.
+                  Ask them to link one in Account & wallets before selecting
+                  them.
+                </p>
+              ) : (
+                <fieldset className="manager-wallet-options">
+                  <legend>
+                    Choose the wallet that will manage this project
+                  </legend>
+                  {nearWallets.map((wallet) => (
+                    <label
+                      className="manager-wallet-option"
+                      key={wallet.address}
+                    >
+                      <input
+                        type="radio"
+                        name="manager-wallet"
+                        value={wallet.address}
+                        checked={manager === wallet.address}
+                        onChange={() => change("manager", wallet.address)}
+                        required
+                      />
+                      <span>
+                        <ChainBadge chain="near" />
+                        <span className="manager-wallet-address">
+                          {wallet.address}
+                        </span>
+                      </span>
+                    </label>
+                  ))}
+                </fieldset>
+              )}
+            </div>
+          )}
+        </>
+      )}
+      <details className="disclosure" open={manual}>
+        <summary
+          onClick={(event) => {
+            event.preventDefault();
+            if (disabled) return;
+            clearSelection();
+            setManual((value) => !value);
+          }}
+        >
+          Use a NEAR account directly
+        </summary>
+        {manual && (
+          <div className="disclosure-body form-stack">
+            <p className="review-note">
+              For someone without an Apodect profile. Confirm the account with
+              them first; this action grants management permissions directly.
+            </p>
+            <Field label="New manager’s NEAR account">
+              <input
+                required
+                value={manager}
+                onChange={(event) => change("manager", event.target.value)}
+                placeholder="manager.near"
+                autoComplete="off"
+                autoCapitalize="none"
+                spellCheck={false}
+                maxLength={64}
+              />
+            </Field>
+          </div>
+        )}
+      </details>
+    </div>
+  );
+}
 
 export function ActionFields({
   project,
@@ -64,7 +251,6 @@ export function ActionFields({
     purpose,
     report,
     existingReference,
-    manager,
     attempts,
     slippage,
     minutes,
@@ -288,14 +474,12 @@ export function ActionFields({
         </details>
       )}
       {kind === "set_authority" && (
-        <Field label="New manager’s NEAR account">
-          <input
-            required
-            value={manager}
-            onChange={(event) => change("manager", event.target.value)}
-            placeholder="manager.near"
-          />
-        </Field>
+        <ManagerPicker
+          manager={values.manager}
+          profile={values.managerProfile}
+          change={change}
+          disabled={busy}
+        />
       )}
       {kind === "set_retry_limit" && (
         <Field label="Maximum recovery attempts" hint="From 1 to 20 attempts.">
@@ -595,11 +779,25 @@ export function ActionReview({
           <>
             <div>
               <dt>Current manager</dt>
-              <dd>{project.authority}</dd>
+              <dd>
+                <Address value={project.authority} full />
+              </dd>
             </div>
             <div>
               <dt>New manager</dt>
-              <dd>{values.manager.trim()}</dd>
+              <dd>
+                {values.managerProfile && (
+                  <span className="manager-profile-name">
+                    {values.managerProfile.profile.display_name && (
+                      <strong>
+                        {values.managerProfile.profile.display_name}
+                      </strong>
+                    )}
+                    <span>@{values.managerProfile.profile.username}</span>
+                  </span>
+                )}
+                <Address value={values.manager.trim()} full />
+              </dd>
             </div>
           </>
         )}

@@ -19,6 +19,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::{
+    accounts::ProfileError,
     actions::{Actions, ApplyRequest, CoordinatorAction, LocalAction},
     application::Application,
     config::{Chain, ProjectConfig},
@@ -93,6 +94,22 @@ impl ApiError {
             "This action cannot be prepared for the selected wallet and current contract state. Refresh the project and check its permissions and available funds.",
         )
     }
+
+    fn profile(error: anyhow::Error) -> Self {
+        match error.downcast_ref::<ProfileError>() {
+            Some(ProfileError::UsernameTaken) => Self::new(
+                StatusCode::CONFLICT,
+                "username_taken",
+                ProfileError::UsernameTaken.message(),
+            ),
+            Some(error) => Self::new(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "invalid_profile",
+                error.message(),
+            ),
+            None => Self::service(error),
+        }
+    }
 }
 impl std::fmt::Display for ApiError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -145,7 +162,11 @@ pub fn configure(config: &mut web::ServiceConfig) {
             .route("/auth/verify", web::post().to(auth::login))
             .route("/auth/logout", web::post().to(auth::logout))
             .route("/account", web::get().to(auth::account))
-            .route("/account", web::patch().to(auth::rename))
+            .route("/account", web::patch().to(auth::update_profile))
+            .route(
+                "/profiles/{username}",
+                web::get().to(auth::profile_by_username),
+            )
             .route(
                 "/account/wallets/challenge",
                 web::post().to(auth::link_challenge),

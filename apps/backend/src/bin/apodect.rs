@@ -54,9 +54,10 @@ enum Command {
     Profile {
         session: String,
     },
-    RenameProfile {
+    UpdateProfile {
         session: String,
         name: Option<String>,
+        username: Option<String>,
     },
     Logout {
         session: String,
@@ -106,7 +107,7 @@ async fn main() -> ExitCode {
     let option = std::env::args().nth(1);
     if option.as_deref() == Some("--help") {
         println!(
-            "Use --deployment-domains before binding public vaults, or --check-deployment for read-only admission without a database or signing keys. Otherwise read one JSON command from stdin. Commands: projects, inspect, index, operations, retry_operation, transport_status, login_challenge, login, link_challenge, link_wallet, profile, rename_profile, logout, funding_proposal, prepare_apply, prepare_coordinator, prepare_local. See docs/backend.md."
+            "Use --deployment-domains before binding public vaults, or --check-deployment for read-only admission without a database or signing keys. Otherwise read one JSON command from stdin. Commands: projects, inspect, index, operations, retry_operation, transport_status, login_challenge, login, link_challenge, link_wallet, profile, update_profile, logout, funding_proposal, prepare_apply, prepare_coordinator, prepare_local. See docs/backend.md."
         );
         return ExitCode::SUCCESS;
     }
@@ -287,9 +288,13 @@ async fn run() -> Result<Value> {
         Command::Profile { session } => {
             json!({"session":app.accounts.session(&session).await?,"wallets":app.accounts.wallets(&session).await?})
         }
-        Command::RenameProfile { session, name } => serde_json::to_value(
+        Command::UpdateProfile {
+            session,
+            name,
+            username,
+        } => serde_json::to_value(
             app.accounts
-                .update_display_name(&session, name.as_deref())
+                .update_profile(&session, name.as_deref(), username.as_deref())
                 .await?,
         )?,
         Command::Logout { session } => {

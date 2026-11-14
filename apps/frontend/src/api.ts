@@ -9,6 +9,11 @@ export interface Wallet {
 export interface Profile {
   id: string;
   display_name: string | null;
+  username: string | null;
+}
+export interface ProfileLookup {
+  profile: Profile;
+  wallets: Wallet[];
 }
 export interface Account {
   session: { profile: Profile; wallet: Wallet; expires_at: string };
@@ -355,8 +360,10 @@ const projectPath = (key: string) => `/projects/${encodeURIComponent(key)}`;
 export const api = {
   config: () => request<PublicConfig>("/config"),
   account: () => request<Account>("/account"),
-  rename: (name: string | null) =>
-    request<Profile>("/account", "PATCH", { name }),
+  updateProfile: (name: string | null, username: string | null) =>
+    request<Profile>("/account", "PATCH", { name, username }),
+  profileByUsername: (username: string) =>
+    request<ProfileLookup>(`/profiles/${encodeURIComponent(username)}`),
   challenge: (chain: Chain, address: string, callback_url?: string) =>
     request<Challenge>("/auth/challenge", "POST", {
       chain,

@@ -176,21 +176,49 @@ pub(super) async fn account(app: web::Data<Application>, request: HttpRequest) -
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct RenameInput {
+pub(super) struct ProfileInput {
+    #[serde(deserialize_with = "nullable_profile_field")]
     name: Option<String>,
+    #[serde(deserialize_with = "nullable_profile_field")]
+    username: Option<String>,
 }
-pub(super) async fn rename(
+
+// Saving the profile replaces both fields. Require explicit null to clear one.
+fn nullable_profile_field<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> std::result::Result<Option<String>, D::Error> {
+    Option::<String>::deserialize(deserializer)
+}
+pub(super) async fn update_profile(
     app: web::Data<Application>,
     request: HttpRequest,
-    input: web::Json<RenameInput>,
+    input: web::Json<ProfileInput>,
 ) -> ApiResult {
     let session = authenticated(&app, &request).await?;
     Ok(HttpResponse::Ok().json(
         app.accounts
-            .update_display_name(&session, input.name.as_deref())
+            .update_profile(&session, input.name.as_deref(), input.username.as_deref())
             .await
-            .map_err(ApiError::action)?,
+            .map_err(ApiError::profile)?,
     ))
+}
+
+pub(super) async fn profile_by_username(
+    app: web::Data<Application>,
+    request: HttpRequest,
+    username: web::Path<String>,
+) -> ApiResult {
+    let session = authenticated(&app, &request).await?;
+    let profile = app.accounts
+        .profile_by_username(&session, &username)
+        .await
+        .map_err(ApiError::profile)?
+        .ok_or_else(|| ApiError::new(
+            StatusCode::NOT_FOUND,
+            "profile_not_found",
+            "No profile has this username. Ask them to sign in and set one in Account & wallets.",
+        ))?;
+    Ok(HttpResponse::Ok().json(profile))
 }
 pub(super) async fn link_challenge(
     app: web::Data<Application>,

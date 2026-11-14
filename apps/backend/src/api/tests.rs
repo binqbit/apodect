@@ -85,7 +85,18 @@ async fn browser_identity_and_finalized_project_flow() -> Result<()> {
                         "query" => {
                             let hash=near_primitives::hash::CryptoHash::default().to_string();
                             if input["params"]["request_type"] == "view_access_key" {
-                                json!({"block_hash":hash,"block_height":10,"permission":if access.load(Ordering::SeqCst) { json!("FullAccess") } else { json!({"FunctionCall":{}}) }})
+                                if !access.load(Ordering::SeqCst) {
+                                    return HttpResponse::Ok().json(json!({
+                                        "jsonrpc":"2.0","id":input["id"],
+                                        "error":{"code":-32000,"message":"Server error","cause":{
+                                            "name":"UNKNOWN_ACCESS_KEY", "info":{
+                                                "public_key":input["params"]["public_key"],
+                                                "block_hash":hash,"block_height":10
+                                            }
+                                        }}
+                                    }));
+                                }
+                                json!({"block_hash":hash,"block_height":10,"permission":"FullAccess"})
                             } else {
                                 let state=json!({
                                     "owner_id": "owner.near",
@@ -565,6 +576,76 @@ async fn browser_identity_and_finalized_project_flow() -> Result<()> {
             Some(&public_key),
         )
         .await?;
+
+    // A handle exposes only proven wallets on this deployment, without giving
+    // the person looking it up any additional on-chain permission.
+    let request = test::TestRequest::patch()
+        .uri("/api/account")
+        .cookie(stranger_cookie.clone())
+        .insert_header((header::ORIGIN, "https://app.example.com"))
+        .set_json(json!({"name":"  Operations lead  ","username":"@Operations_Lead"}))
+        .to_request();
+    let updated: Value = test::call_and_read_body_json(&app, request).await;
+    assert_eq!(updated["display_name"], "Operations lead");
+    assert_eq!(updated["username"], "operations_lead");
+    let request = test::TestRequest::patch()
+        .uri("/api/account")
+        .cookie(stranger_cookie.clone())
+        .insert_header((header::ORIGIN, "https://app.example.com"))
+        .set_json(json!({"name":"Incomplete update"}))
+        .to_request();
+    assert_eq!(
+        test::call_service(&app, request).await.status(),
+        StatusCode::BAD_REQUEST
+    );
+    sqlx::query("INSERT INTO wallets(chain,network,address,profile_id) VALUES('solana','old-deployment',$1,$2)")
+        .bind(&stranger_address).bind(login.profile.id).execute(&pool).await?;
+    let request = test::TestRequest::get()
+        .uri("/api/profiles/operations_lead")
+        .to_request();
+    assert_eq!(
+        test::call_service(&app, request).await.status(),
+        StatusCode::UNAUTHORIZED
+    );
+    let request = test::TestRequest::get()
+        .uri("/api/profiles/@OPERATIONS_LEAD")
+        .cookie(cookie.clone())
+        .to_request();
+    let lookup: Value = test::call_and_read_body_json(&app, request).await;
+    assert_eq!(lookup["profile"], updated);
+    assert_eq!(lookup["wallets"].as_array().unwrap().len(), 2);
+    assert_eq!(lookup["wallets"][0]["address"], "authority.near");
+    assert_eq!(lookup["wallets"][1]["address"], stranger_address);
+    assert!(!lookup.to_string().contains("old-deployment"));
+    assert!(!lookup.to_string().contains("near_public_key"));
+    for (username, expected) in [
+        ("unregistered_person", StatusCode::NOT_FOUND),
+        ("invalid-handle", StatusCode::UNPROCESSABLE_ENTITY),
+    ] {
+        let request = test::TestRequest::get()
+            .uri(&format!("/api/profiles/{username}"))
+            .cookie(cookie.clone())
+            .to_request();
+        assert_eq!(test::call_service(&app, request).await.status(), expected);
+    }
+    let request = test::TestRequest::patch()
+        .uri("/api/account")
+        .cookie(cookie.clone())
+        .insert_header((header::ORIGIN, "https://app.example.com"))
+        .set_json(json!({"name":"Name must not be saved","username":"OPERATIONS_LEAD"}))
+        .to_request();
+    let response = test::call_service(&app, request).await;
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+    let conflict: Value = test::read_body_json(response).await;
+    assert_eq!(conflict["error"]["code"], "username_taken");
+    let request = test::TestRequest::get()
+        .uri("/api/account")
+        .cookie(cookie.clone())
+        .to_request();
+    let account: Value = test::call_and_read_body_json(&app, request).await;
+    assert!(account["session"]["profile"]["username"].is_null());
+    assert!(account["session"]["profile"]["display_name"].is_null());
+
     let request = test::TestRequest::get()
         .uri(&reference_path)
         .cookie(stranger_cookie.clone())
@@ -574,6 +655,13 @@ async fn browser_identity_and_finalized_project_flow() -> Result<()> {
         StatusCode::OK
     );
     key_active.store(false, Ordering::SeqCst);
+    let request = test::TestRequest::get()
+        .uri("/api/profiles/operations_lead")
+        .cookie(cookie.clone())
+        .to_request();
+    let lookup: Value = test::call_and_read_body_json(&app, request).await;
+    assert_eq!(lookup["wallets"].as_array().unwrap().len(), 1);
+    assert_eq!(lookup["wallets"][0]["chain"], "solana");
     let request = test::TestRequest::get()
         .uri(&reference_path)
         .cookie(stranger_cookie.clone())
@@ -587,11 +675,29 @@ async fn browser_identity_and_finalized_project_flow() -> Result<()> {
     manager_active.store(false, Ordering::SeqCst);
     let request = test::TestRequest::get()
         .uri(&reference_path)
-        .cookie(stranger_cookie)
+        .cookie(stranger_cookie.clone())
         .to_request();
     assert_eq!(
         test::call_service(&app, request).await.status(),
         StatusCode::FORBIDDEN
+    );
+    let request = test::TestRequest::patch()
+        .uri("/api/account")
+        .cookie(stranger_cookie)
+        .insert_header((header::ORIGIN, "https://app.example.com"))
+        .set_json(json!({"name":"Operations lead","username":null}))
+        .to_request();
+    assert_eq!(
+        test::call_service(&app, request).await.status(),
+        StatusCode::OK
+    );
+    let request = test::TestRequest::get()
+        .uri("/api/profiles/operations_lead")
+        .cookie(cookie.clone())
+        .to_request();
+    assert_eq!(
+        test::call_service(&app, request).await.status(),
+        StatusCode::NOT_FOUND
     );
     // The author's access survives management changes.
     let request = test::TestRequest::get()
