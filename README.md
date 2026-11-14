@@ -29,3 +29,8 @@ stop Compose first because both launchers use the same RPC ports. See
 Run `make check` for contract, adapter and service checks, or `make fmt` to apply
 the repository formatters. Public MPC and liquidity integration remain separate
 from the local simulator; see [provider requirements](docs/cross-chain-providers.md).
+
+## License
+
+Apodect is licensed under the [MIT License](LICENSE). Third-party components retain
+their own licenses, including the [Moby seccomp profile](infra/localnet-seccomp.LICENSE).
