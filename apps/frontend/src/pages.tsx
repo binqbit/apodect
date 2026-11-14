@@ -8,6 +8,7 @@ import {
   type PublicConfig,
 } from "./api";
 import { useSession } from "./app";
+import { Icon, WalletIcon } from "./icons";
 import {
   discoverWallets,
   importDevelopmentWallet,
@@ -30,6 +31,7 @@ import {
   GuideLink,
   Loading,
   Money,
+  NetworkPicker,
   Notice,
   PageTitle,
   Panel,
@@ -44,12 +46,28 @@ export function RoleBadges({ roles }: { roles: ProjectRoles }) {
   const ownedChains = chains.filter((chain) => roles.local_owners[chain]);
   return (
     <div className="role-badges">
-      {roles.owner && <span className="role-badge">Owner</span>}
-      {roles.authority && <span className="role-badge">Manager</span>}
-      {roles.agent && <span className="role-badge">Agent</span>}
+      {roles.owner && (
+        <span className="role-badge">
+          <Icon name="shield" />
+          Owner
+        </span>
+      )}
+      {roles.authority && (
+        <span className="role-badge">
+          <Icon name="manager" />
+          Manager
+        </span>
+      )}
+      {roles.agent && (
+        <span className="role-badge">
+          <Icon name="user" />
+          Agent
+        </span>
+      )}
       {!roles.owner &&
         ownedChains.map((chain) => (
           <span className="role-badge" key={chain}>
+            <Icon name="wallet" />
             Vault owner · {chainNames[chain]}
           </span>
         ))}
@@ -57,7 +75,10 @@ export function RoleBadges({ roles }: { roles: ProjectRoles }) {
         !roles.authority &&
         !roles.agent &&
         ownedChains.length === 0 && (
-          <span className="role-badge">Participant</span>
+          <span className="role-badge">
+            <Icon name="user" />
+            Participant
+          </span>
         )}
     </div>
   );
@@ -77,6 +98,7 @@ export function WalletPicker({
   const { config, rememberWallet } = useSession();
   const [options, setOptions] = useState<WalletOption[] | null>(null);
   const [busy, setBusy] = useState(false);
+  const [connecting, setConnecting] = useState<string | null>(null);
   const [error, setError] = useState<unknown>();
   const mounted = useRef(false);
   useEffect(() => {
@@ -101,6 +123,7 @@ export function WalletPicker({
   async function connect(option: WalletOption) {
     if (!config) return;
     setBusy(true);
+    setConnecting(option.id);
     onBusyChange?.(true);
     setError(undefined);
     try {
@@ -113,6 +136,7 @@ export function WalletPicker({
     } finally {
       if (mounted.current) {
         setBusy(false);
+        setConnecting(null);
         onBusyChange?.(false);
       }
     }
@@ -139,11 +163,25 @@ export function WalletPicker({
           <button
             type="button"
             key={option.id}
-            className="button secondary"
+            className="button secondary wallet-provider"
             disabled={busy || disabled}
+            aria-busy={connecting === option.id}
             onClick={() => void connect(option)}
           >
-            {busy ? "Waiting for wallet…" : option.name}
+            <WalletIcon src={option.icon} />
+            <span className="wallet-provider-label">
+              <strong>{option.name}</strong>
+              <small>
+                {connecting === option.id
+                  ? "Waiting for wallet…"
+                  : "Connect wallet"}
+              </small>
+            </span>
+            {connecting === option.id ? (
+              <span className="spinner" aria-hidden="true" />
+            ) : (
+              <Icon name="arrow" />
+            )}
           </button>
         ))}
       </div>
@@ -264,6 +302,7 @@ export function AccountPage() {
               disabled={busy}
               onClick={() => void logout()}
             >
+              <Icon name="logout" />
               Sign out
             </button>
           )
@@ -325,6 +364,7 @@ export function AccountPage() {
                   </Field>
                   <div>
                     <button className="button small secondary" disabled={busy}>
+                      <Icon name="check" />
                       Save profile
                     </button>
                   </div>
@@ -355,6 +395,7 @@ export function AccountPage() {
                       )}
                   </div>
                   <span className="role-badge">
+                    <Icon name="confirmed" />
                     {wallet.chain === account.session.wallet.chain &&
                     wallet.network === account.session.wallet.network &&
                     sameAddress(
@@ -378,23 +419,12 @@ export function AccountPage() {
             }
           >
             <div className="panel-body form-stack">
-              <div className="wallet-options">
-                {chains.map((value) => (
-                  <button
-                    key={value}
-                    type="button"
-                    className={`wallet-choice ${chain === value ? "selected" : ""}`}
-                    aria-pressed={chain === value}
-                    disabled={busy}
-                    onClick={() => setChain(value)}
-                  >
-                    <ChainBadge chain={value} />
-                    <span>
-                      {chain === value ? "Selected" : "Choose network"}
-                    </span>
-                  </button>
-                ))}
-              </div>
+              <NetworkPicker
+                label="Wallet network"
+                value={chain}
+                onChange={setChain}
+                disabled={busy}
+              />
               {config && (
                 <WalletPicker
                   chain={chain}
@@ -668,6 +698,7 @@ export function ProjectsPage() {
             disabled={result.loading}
             onClick={result.refresh}
           >
+            <Icon name="refresh" />
             Refresh
           </button>
         }
@@ -709,7 +740,7 @@ export function ProjectsPage() {
                 style={{ justifyContent: "space-between" }}
               >
                 <span className="project-icon" aria-hidden="true">
-                  ◈
+                  <Icon name="projects" />
                 </span>
                 <RoleBadges roles={project.roles} />
               </div>
@@ -728,7 +759,7 @@ export function ProjectsPage() {
                     <span className="muted">Not yet observed</span>
                   )}
                 </div>
-                <span aria-hidden="true">↗</span>
+                <Icon name="arrow" />
               </div>
               {project.attention_count > 0 && (
                 <p style={{ marginTop: 15 }}>

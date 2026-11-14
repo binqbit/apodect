@@ -10,6 +10,7 @@ import { api } from "./api";
 export interface WalletOption {
   id: string;
   name: string;
+  icon?: string;
   chain: Chain;
   connect: () => Promise<ConnectedWallet>;
 }

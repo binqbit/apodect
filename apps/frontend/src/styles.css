@@ -270,6 +270,15 @@ li + li {
 .button:hover:not(:disabled) {
   background: var(--accent-hover);
 }
+.icon {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  vertical-align: middle;
+}
+.button:has(> .icon) {
+  gap: 10px;
+}
 .button.small {
   padding: 8px 14px;
   gap: 12px;
@@ -1034,6 +1043,9 @@ button.text-link {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.account-link-guest .account-name {
+  white-space: normal;
+}
 .avatar {
   background: var(--accent-soft);
   width: 31px;
@@ -1166,12 +1178,19 @@ button.text-link {
   flex-wrap: wrap;
 }
 .role-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-size: 0.75rem;
   padding: 4px 8px;
   border-radius: 4px;
   background: var(--raised);
   color: var(--accent);
   font-weight: 550;
+}
+.role-badge .icon {
+  width: 14px;
+  height: 14px;
 }
 .stats {
   display: grid;
@@ -1362,11 +1381,9 @@ main:focus {
   text-transform: capitalize;
   white-space: nowrap;
 }
-.status > span {
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: currentColor;
+.status .icon {
+  width: 14px;
+  height: 14px;
 }
 .status.positive {
   background: var(--positive-soft);
@@ -1379,6 +1396,10 @@ main:focus {
 .status.danger {
   background: var(--danger-soft);
   color: var(--danger);
+}
+.status.warning {
+  background: var(--warning-soft);
+  color: var(--warning);
 }
 .tabs {
   display: flex;
@@ -1554,6 +1575,9 @@ main:focus {
   color: var(--muted);
 }
 .notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: 15px 18px;
@@ -1563,6 +1587,18 @@ main:focus {
   color: var(--muted);
   margin-bottom: 20px;
   overflow-wrap: anywhere;
+}
+.notice > .icon {
+  margin-top: 2px;
+  color: var(--accent);
+}
+.notice-error > .icon,
+.notice-success > .icon {
+  color: currentColor;
+}
+.notice-content {
+  flex: 1;
+  min-width: 0;
 }
 .notice p {
   margin: 5px 0;
@@ -1635,7 +1671,8 @@ main:focus {
   gap: 8px;
   min-width: 0;
 }
-.field > label {
+.field > label,
+.field > legend {
   font-size: 0.8125rem;
   font-weight: 550;
   color: var(--muted);
@@ -1664,6 +1701,37 @@ main:focus {
 .field textarea::placeholder {
   color: var(--muted);
 }
+.field input[type="file"] {
+  padding: 8px;
+  color: var(--muted);
+  font-size: 0.8125rem;
+  cursor: pointer;
+}
+.field input[type="file"]::file-selector-button {
+  margin-right: 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--raised);
+  color: var(--ink);
+  font: inherit;
+  font-weight: 550;
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    border-color 0.15s;
+}
+.field input[type="file"]:hover:not(:disabled)::file-selector-button {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+.field input[type="file"]:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.field input[type="file"]:disabled::file-selector-button {
+  cursor: not-allowed;
+}
 .form-stack {
   display: flex;
   flex-direction: column;
@@ -1681,34 +1749,118 @@ main:focus {
 .account-layout > div > .panel:last-child {
   margin-bottom: 0;
 }
-.wallet-options {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-}
 .wallet-providers .button {
   max-width: 100%;
   white-space: normal;
   overflow-wrap: anywhere;
 }
-.wallet-choice {
-  background: var(--paper);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 21px 15px;
+.wallet-provider {
+  flex: 1 1 215px;
+  justify-content: flex-start;
+  gap: 12px;
+  text-align: left;
+  padding: 14px;
+}
+.wallet-provider > .icon,
+.wallet-provider > .spinner {
+  margin-left: auto;
+}
+.wallet-provider-label {
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  align-items: flex-start;
-  color: var(--ink);
+  gap: 2px;
+  min-width: 0;
 }
-.wallet-choice:hover,
-.wallet-choice.selected {
+.wallet-provider-label small {
+  font-size: 0.75rem;
+  color: var(--muted);
+  font-weight: 400;
+}
+.wallet-provider-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+}
+.wallet-provider-icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.network-mark {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+.network-mark-ethereum {
+  color: #b4bfff;
+}
+.network-icon .network-mark {
+  stroke: none;
+}
+.network-picker {
+  padding: 0;
+  border: 0;
+  margin: 0;
+  min-width: 0;
+}
+.network-picker legend {
+  padding: 0;
+  margin-bottom: 8px;
+}
+.network-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.network-option {
+  position: relative;
+  min-width: 0;
+  cursor: pointer;
+}
+.network-picker input[type="radio"] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  opacity: 0;
+}
+.network-option-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  height: 100%;
+  padding: 14px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--paper);
+}
+.network-selection {
+  width: 14px;
+  height: 14px;
+  visibility: hidden;
+}
+.network-option input:checked + .network-option-content {
   border-color: var(--accent);
   background: var(--accent-soft);
 }
-.wallet-choice span:last-child {
-  font-size: 0.75rem;
+.network-option input:checked + .network-option-content .network-selection {
+  color: var(--accent);
+  visibility: visible;
+}
+.network-option input:focus-visible + .network-option-content {
+  outline: 3px solid var(--accent);
+  outline-offset: 3px;
+}
+.network-option input:disabled + .network-option-content {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.network-option:hover .network-option-content {
+  border-color: var(--accent);
 }
 .wallet-entry {
   display: flex;
@@ -2410,20 +2562,19 @@ main:focus {
     display: inline;
     margin-left: 8px;
   }
-  .wallet-options {
-    gap: 8px;
+  .network-option-content {
+    padding: 14px 8px;
   }
-  .wallet-choice {
-    padding: 17px 10px;
-  }
-  .wallet-choice .chain {
+  .network-option .chain {
     flex-direction: column;
     align-items: flex-start;
     font-size: 0.75rem;
-    gap: 5px;
+    gap: 8px;
   }
-  .wallet-choice span:last-child {
-    font-size: 0.75rem;
+  .network-option .network-selection {
+    position: absolute;
+    top: 12px;
+    right: 8px;
   }
   .action-dialog {
     padding: 23px;

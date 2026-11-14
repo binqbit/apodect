@@ -19,7 +19,7 @@ export interface EthereumProvider {
 }
 
 interface Announcement {
-  info: { uuid: string; name: string };
+  info: { uuid: string; name: string; icon?: string };
   provider: EthereumProvider;
 }
 const providers = new Map<string, Announcement>();
@@ -54,6 +54,7 @@ export async function discoverEthereum(
   return [...providers.values()].map(({ info, provider }) => ({
     id: `ethereum:${info.uuid}`,
     name: info.name,
+    icon: info.icon,
     chain: "ethereum",
     connect: async () => {
       const accounts = (await provider.request({

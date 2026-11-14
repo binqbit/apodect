@@ -15,10 +15,10 @@ import {
   Field,
   Loading,
   Money,
+  NetworkPicker,
   Notice,
   ReferenceContent,
   chainNames,
-  chains,
   money,
 } from "./ui";
 
@@ -83,21 +83,17 @@ export function ActionFields({
       }}
     >
       {kind === "create_task" && (
-        <Field
-          label="Execution network"
-          hint="The task and its request will be created locally on this network."
-        >
-          <select
+        <div className="form-stack">
+          <NetworkPicker
+            label="Execution network"
             value={chain}
-            onChange={(event) => change("chain", event.target.value as Chain)}
-          >
-            {chains.map((value) => (
-              <option key={value} value={value}>
-                {chainNames[value]}
-              </option>
-            ))}
-          </select>
-        </Field>
+            onChange={(value) => change("chain", value)}
+            disabled={busy}
+          />
+          <p className="review-note">
+            The task and its request will be created locally on this network.
+          </p>
+        </div>
       )}
       <Field label={`Signing wallet · ${chainNames[signingChain]}`}>
         <select

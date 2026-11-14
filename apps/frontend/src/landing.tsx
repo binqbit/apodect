@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { Brand, GuideLink } from "./ui";
+import { NetworkIcon } from "./icons";
 
 export function Landing() {
   return (
@@ -70,25 +71,21 @@ export function Landing() {
             <div className="diagram-chains" aria-label="Project vaults">
               <div>
                 <span className="network-icon" aria-hidden="true">
-                  <svg viewBox="0 0 24 24" fill="none">
-                    <path d="m12 2 6 10-6 4-6-4 6-10ZM6 15l6 7 6-7-6 4-6-4Z" />
-                  </svg>
+                  <NetworkIcon chain="ethereum" />
                 </span>
                 <strong>Ethereum</strong>
                 <span>Project funds</span>
               </div>
               <div>
                 <span className="network-icon" aria-hidden="true">
-                  <svg viewBox="0 0 24 24" fill="none">
-                    <path d="m6 5 2-2h12l-2 2H6Zm0 6h12l2 2H8l-2-2Zm0 10 2-2h12l-2 2H6Z" />
-                  </svg>
+                  <NetworkIcon chain="solana" />
                 </span>
                 <strong>Solana</strong>
                 <span>Project funds</span>
               </div>
               <div>
                 <span className="network-icon" aria-hidden="true">
-                  N
+                  <NetworkIcon chain="near" />
                 </span>
                 <strong>NEAR</strong>
                 <span>Project funds</span>

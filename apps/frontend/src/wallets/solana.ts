@@ -53,6 +53,7 @@ export async function discoverSolana(
     .map((wallet, index) => ({
       id: `solana:${wallet.name}:${index}`,
       name: wallet.name,
+      icon: wallet.icon,
       chain: "solana",
       connect: async () => {
         const supported = wallet as SupportedWallet;

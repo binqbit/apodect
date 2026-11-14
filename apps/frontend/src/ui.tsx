@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { Link, useLocation } from "react-router-dom";
+import { Icon, NetworkIcon, type IconName } from "./icons";
 
 export const chains = ["ethereum", "solana", "near"] as const;
 export const chainNames: Record<Chain, string> = {
@@ -106,7 +107,7 @@ export function Address({
         aria-label={`Copy ${value}`}
         title="Copy full value"
       >
-        ⧉
+        <Icon name={feedback === "Copied" ? "check" : "copy"} />
       </button>
       <span className="copy-feedback" role="status">
         {feedback}
@@ -119,31 +120,113 @@ export function ChainBadge({ chain }: { chain: Chain }) {
   return (
     <span className={`chain chain-${chain}`}>
       <span aria-hidden="true">
-        {chain === "ethereum" ? "◆" : chain === "solana" ? "≋" : "N"}
+        <NetworkIcon chain={chain} />
       </span>
       {chainNames[chain]}
     </span>
   );
 }
 
+export function NetworkPicker({
+  value,
+  onChange,
+  label,
+  hint,
+  disabled = false,
+}: {
+  value: Chain;
+  onChange: (chain: Chain) => void;
+  label: string;
+  hint?: string;
+  disabled?: boolean;
+}) {
+  const id = useId();
+  return (
+    <fieldset
+      className="field network-picker"
+      disabled={disabled}
+      aria-describedby={hint ? `${id}-hint` : undefined}
+    >
+      <legend>{label}</legend>
+      <div className="network-options">
+        {chains.map((chain) => (
+          <label className="network-option" key={chain}>
+            <input
+              type="radio"
+              name={id}
+              value={chain}
+              checked={value === chain}
+              onChange={() => onChange(chain)}
+            />
+            <span className="network-option-content">
+              <ChainBadge chain={chain} />
+              <Icon name="check" className="network-selection" />
+            </span>
+          </label>
+        ))}
+      </div>
+      {hint && <small id={`${id}-hint`}>{hint}</small>}
+    </fieldset>
+  );
+}
+
 export function Status({ value }: { value: string }) {
   const label = value.replaceAll("_", " ");
-  const positive = [
-    "active",
-    "ready",
-    "funded",
-    "confirmed",
-    "completed",
-    "settled",
-  ].includes(value.toLowerCase());
-  const danger = ["attention", "failed", "rejected", "out_of_budget"].includes(
-    value.toLowerCase(),
-  );
+  const state = label.toLowerCase();
+  let icon: IconName = "info";
+  let tone = "neutral";
+  if (
+    [
+      "ready",
+      "funded",
+      "confirmed",
+      "completed",
+      "settled",
+      "finalized",
+      "succeeded",
+    ].includes(state)
+  ) {
+    icon = "confirmed";
+    tone = "positive";
+  } else if (["active", "executing"].includes(state)) {
+    icon = "play";
+    tone = "positive";
+  } else if (["failed", "rejected"].includes(state)) {
+    icon = "canceled";
+    tone = "danger";
+  } else if (["attention", "out of budget", "budget needed"].includes(state)) {
+    icon = "alert";
+    tone = "warning";
+  } else if (state === "paused") {
+    icon = "pause";
+    tone = "warning";
+  } else if (state === "stopped") {
+    icon = "stop";
+  } else if (["canceled", "removed", "invalidated"].includes(state)) {
+    icon = "canceled";
+  } else if (["queued", "awaiting funding"].includes(state)) {
+    icon = "queue";
+  } else if (["delivering", "dispatching", "withdrawing"].includes(state)) {
+    icon = "transfer";
+  } else if (
+    [
+      "pending",
+      "submitted",
+      "confirming",
+      "reserving",
+      "reserved",
+      "rejecting",
+    ].includes(state) ||
+    state.includes("pending") ||
+    state.startsWith("awaiting")
+  ) {
+    icon = "clock";
+  } else if (["released", "allocation released", "closed"].includes(state)) {
+    icon = "check";
+  }
   return (
-    <span
-      className={`status ${positive ? "positive" : danger ? "danger" : "neutral"}`}
-    >
-      <span aria-hidden="true" />
+    <span className={`status ${tone}`}>
+      <Icon name={icon} />
       {label}
     </span>
   );
@@ -161,7 +244,12 @@ export function Notice({
       className={`notice notice-${tone}`}
       role={tone === "error" ? "alert" : "status"}
     >
-      {children}
+      <Icon
+        name={
+          tone === "error" ? "alert" : tone === "success" ? "confirmed" : "info"
+        }
+      />
+      <div className="notice-content">{children}</div>
     </div>
   );
 }
@@ -178,7 +266,7 @@ export function Empty({
   return (
     <div className="empty">
       <span className="empty-mark" aria-hidden="true">
-        ↗
+        <Icon name="projects" />
       </span>
       <h3>{title}</h3>
       {children && <p>{children}</p>}

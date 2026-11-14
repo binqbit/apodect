@@ -30,6 +30,7 @@ import { Guide } from "./guide";
 import { AccountPage, ProjectsPage } from "./pages";
 import { ProjectPage } from "./project";
 import { Brand, ErrorState, GuideLink, Loading, short } from "./ui";
+import { Icon } from "./icons";
 
 interface SessionContext {
   account: Account | null;
@@ -156,19 +157,19 @@ function WorkspaceLayout() {
             }
           >
             <span className="nav-icon" aria-hidden="true">
-              ▦
+              <Icon name="projects" />
             </span>
             Projects
           </NavLink>
           <NavLink to="/app/account">
             <span className="nav-icon" aria-hidden="true">
-              ◉
+              <Icon name="wallet" />
             </span>
             Account & wallets
           </NavLink>
           <GuideLink>
             <span className="nav-icon" aria-hidden="true">
-              ?
+              <Icon name="book" />
             </span>
             User guide
           </GuideLink>
@@ -195,12 +196,12 @@ function WorkspaceLayout() {
                 ? `${location.pathname}${location.search}${location.hash}`
                 : "/app",
             }}
-            className="account-link"
+            className={`account-link ${account ? "" : "account-link-guest"}`}
           >
             <span className="avatar" aria-hidden="true">
               {account?.session.profile.display_name
                 ?.slice(0, 1)
-                .toUpperCase() ?? "◈"}
+                .toUpperCase() || <Icon name={account ? "user" : "wallet"} />}
             </span>
             <span className="account-name">
               {account

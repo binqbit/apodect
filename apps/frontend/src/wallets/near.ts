@@ -18,11 +18,14 @@ export async function discoverNear(
   config: PublicConfig,
 ): Promise<WalletOption[]> {
   if (!["mainnet", "testnet"].includes(config.near.network_id)) return [];
+  const { default: myNearWalletIcon } =
+    await import("@near-wallet-selector/my-near-wallet/assets/my-near-wallet-icon.png?url");
   return [
     {
       id: "near:my-near-wallet",
       chain: "near",
       name: "MyNearWallet",
+      icon: myNearWalletIcon,
       connect: async () => {
         // MyNearWallet's browser connector uses Buffer for its wire encoding.
         // Supply that specific polyfill before importing the connector.
