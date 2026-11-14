@@ -1,196 +1,154 @@
 # Backend services
 
-The Rust workspace in `apps/` has three executables: `apodect-backend` hosts
-Actix Web, `apodect-worker` reconciles chains and publishes events, and `apodect`
-exposes the same services through JSON on stdin. The React application uses the
-same-origin `/api` routes. Start the stack with the
-[application development guide](application-development.md).
+The `apps/` Rust workspace has three executables:
 
-## Ownership and accounting
+| Executable | Responsibility |
+| --- | --- |
+| `apodect-backend` | Actix Web API used by the frontend |
+| `apodect-worker` | Chain indexing, command relaying, receipt reconciliation and event publication |
+| `apodect` | Operational JSON interface to the same services |
 
-Owner, authority and agent actions are prepared as unsigned wallet transactions.
-The backend holds only separate gas-payer keys. A linked profile never grants an
-on-chain role: preparation verifies the current role, and the contract checks it
-again when the wallet submits the transaction.
+Use [application development](application-development.md) for startup and
+[provider integration](cross-chain-providers.md) for public deployment requirements.
 
-NEAR is the source of cross-chain authorization, FIFO order and reservations.
-PostgreSQL stores finalized projections, immutable provider quotes and the
-execution journal. It does not maintain a competing editable budget. Source
-debit, transport, delivery and allocation remain distinct contract states.
+## Authority and persistence
 
-`chains/` handles native RPC and transaction formats. `indexing` builds read
-models; `liquidity` prepares exact-output funding proposals; `actions` checks
-wallet ownership and constructs user transactions. `operations` orchestrates
-reconciliation through `relay`, which persists signed bytes before broadcasting.
-This keeps transaction pipelines separate from RPC and encoding details.
+NEAR controls shared approval order, reservations and cross-chain authorization.
+PostgreSQL stores finalized projections, immutable quotes and the operation journal;
+it is not an editable source of Project budget. The API prepares unsigned user
+transactions. Only the worker holds dedicated gas-payer keys; owner, authority and
+agent wallets sign their own actions. Profile membership does not grant a role.
 
-Ethereum and NEAR reads are pinned to finalized blocks. Solana RPC does not
-offer historical account reads at a chosen slot, so its projection records the
-actual range of slots read. Settlement uses immutable receipts with verified
-transaction inclusion, account/program or emitter binding and payload identity.
-Provider status is diagnostic and never credits funds.
+Ethereum and NEAR reads use finalized blocks. Solana account views record the
+actual slots read because RPC cannot pin historical account reads to a chosen
+slot. Settlement checks attributed native evidence; provider status only explains
+transport progress. Failed reads retain the last confirmed projection and cannot
+create available funds. Healthy networks continue reconciling during another
+network's outage.
 
-If a native RPC is unavailable, its last confirmed projection stays in place and
-the synchronization round remains incomplete. The worker continues observations
-and settlement on healthy networks; a failed read never creates available funds.
+The worker holds a PostgreSQL advisory lock while using its keys. It persists
+signed bytes before broadcast and resumes the same transaction identities after
+restart. A timeout or missing receipt never authorizes a replacement payment.
+Pending or uncertain operations keep their reservations; expired Solana submissions
+without conclusive receipts require attention while receipt polling continues.
 
-The worker owns a PostgreSQL advisory lock while using its gas keys. Restarting
-it resumes existing transaction identities. An RPC timeout does not mean a
-transfer failed, and does not authorize a replacement payment. Definitive native
-failures and unresolved execution are visible in the operation journal.
-Permissionless coordinator calls may retry a finalized failure or rejected
-callback within the coordinator's retry limit; each attempt remains archived.
-`retry_operation` lets an operator retry a definitive failure explicitly using
-its current `attempt` number. Pending or uncertain transactions cannot be reset.
-An expired Solana transaction with no conclusive receipt moves to `attention`
-and retains its original bytes while receipt polling continues.
+Permissionless coordinator calls may retry definitive failures within the retry
+limit. Operators can use `retry_operation` with the current `attempt` to retry a
+definitive failure; pending/uncertain operations cannot be reset. A plan requiring
+attention stops new financial submissions and signatures while reconciliation
+continues. Ethereum nonce cleanup may wait until the original command expires.
+See [protocol recovery](cross-chain-protocol.md) for the contract rules.
 
-A plan requiring attention stops new financial command submissions and signatures,
-including after a worker restart. Receipts still reconcile. If a persisted Ethereum nonce
-blocks cleanup, its existing transaction can be rebroadcast once the finalized
-chain timestamp exceeds the command deadline; the expired command cannot perform
-a new token action. Cleanup may therefore wait for that deadline.
+Projection changes and outbox events commit together. The worker publishes to
+Kafka topic `apodect.events` and removes an outbox row only after acknowledgement.
+Delivery is at least once; consumers must deduplicate its stable event UUID.
 
-Project changes and their outbox events commit together. Kafka publication is
-at least once: consumers must deduplicate the stable event UUID. The outbox row
-is deleted only after broker acknowledgement. There are no unused consumers or
-placeholder queues.
+## Browser API
 
-## Browser interface
+The frontend uses same-origin `/api` routes. Sessions use HttpOnly, SameSite Strict
+cookies, with Secure enabled on HTTPS. Mutations require `APP_ORIGIN`; responses
+are not cached. The RPC bridge forwards only wallet methods allowed by the API
+to configured nodes, keeping RPC provider credentials private.
 
-The API groups account authentication, registered Project views, immutable text
-references and unsigned actions. `/api/projects/{key}/actions/local`,
-`actions/coordinator` and `actions/apply` delegate to the existing action services;
-the browser does not construct a second set of business rules. Amounts and
-contract IDs cross this interface as decimal strings to preserve their precision.
+| Routes | Purpose |
+| --- | --- |
+| `/auth/*`, `/account`, `/account/wallets/*` | Wallet sign-in, profile and verified wallet linking |
+| `/profiles/{username}` | Exact username lookup for signed-in users |
+| `/projects`, `/projects/{key}` | Registered deployments and indexed Project views |
+| `/projects/{key}/references/*` | Immutable purpose/report text bound to on-chain hashes |
+| `/projects/{key}/actions/{local,coordinator,apply}` | Prepare unsigned wallet actions |
+| `/projects/{key}/routes/{route}/status` | Provider diagnostics |
+| `/rpc/{chain}` | Restricted wallet RPC bridge |
+| `/health/ready` | Database and initial Project-view readiness |
 
-`GET /api/health/ready` returns `204` once PostgreSQL is reachable and every
-configured Project has its initial coordinator and three local vault projections.
-It returns `503` while indexing is incomplete or the database is unavailable.
-Compose uses this gate before starting the frontend; `/api/config` alone does not
-establish workspace readiness. Ongoing chain/provider failures remain visible
-through worker health and synchronization state.
+Readiness returns `204` once every configured Project has an indexed coordinator
+and three local vaults, or `503` if indexing/database access is incomplete. It does
+not measure continuing RPC/provider health; inspect worker health and synchronization
+state for stalled activity. Worker health requires a successful reconciliation and
+event-publication cycle within five minutes.
 
-Browser sessions use an HttpOnly, SameSite Strict cookie, with Secure enabled for
-HTTPS. Mutations require the configured `APP_ORIGIN`; responses are not cached.
-The RPC bridge accepts only the native methods needed by wallet signing and
-confirmation, targets configured nodes, and keeps provider credentials private.
-Worker retries remain operator actions rather than public API endpoints.
+Token amounts cross the API as USDC base-unit decimal strings. Transaction preparation
+checks current finalized roles and state; contracts recheck on execution. The
+browser records signed transaction identity before broadcast. Wallet submissions
+with a lost response remain unresolved until the exact actor/action/nonce context
+is reconciled; an arbitrary transaction hash does not establish success.
 
-Task-control preparation checks the coordinator's task state at the same finalized
-block as its role and domain. An earlier control must be confirmed before preparing
-the next one, even when a local vault projection has already updated. Contracts
-recheck the state when signed actions execute.
+Purpose/report text is immutable. Its author and current verified Project
+owner/manager can read it; a hash created outside this application may have no
+stored text. Exact HTTP schemas live in [API handlers](../apps/backend/src/api.rs)
+and [authentication handlers](../apps/backend/src/api/auth.rs).
 
-The browser records transaction identity before broadcasting signed bytes. A
-wallet that submits internally may lose its response before returning a hash;
-that attempt remains unresolved until a matching transaction is found. Recovery
-checks the actor, exact action and nonce context before accepting a supplied hash.
-A timeout never makes a new payment safe. Public deployment still needs traffic
-limits at its trusted ingress and the provider prerequisites documented below.
+## Profiles and signing
 
-## Profiles and wallet signing
+Ethereum authentication uses SIWE/EIP-191, including ERC-1271 contract wallets;
+Solana signs the supplied message; NEAR uses NEP-413 with a finalized full-access
+key. Contract-wallet and NEAR key authority are rechecked when sessions are used.
+Identities include network/genesis, so equal addresses on different networks are
+not implicitly the same wallet.
 
-Profiles use wallet authentication. Ethereum follows SIWE/EIP-191 with ERC-1271
-verification for contract wallets; Solana signs the supplied sign-in message;
-NEAR uses NEP-413 and a finalized full-access key. NEAR key authority and contract
-wallet proofs are rechecked when their sessions are used. Wallet identities
-include the network/genesis, so equal addresses on separate networks do not
-silently become the same identity.
+Challenges expire after five minutes and are single-use. Sessions expire after
+24 hours; only token hashes are stored. Linking needs an existing session and a
+fresh signature from the added wallet. A wallet cannot be reassigned to another
+profile. Users may set a display name and unique username. A username makes the
+profile and verified addresses discoverable; it grants no Project permissions.
 
-Challenges expire after five minutes and can be consumed once. Sessions expire
-after 24 hours, and only token hashes are stored. Linking requires both the
-existing session and a fresh signature from the new wallet. A linked wallet
-cannot be reassigned to a different profile.
+## Operational CLI
 
-The CLI reads one JSON object and writes one JSON result. Keep session tokens in
-private input files or stdin, rather than command arguments or shared logs:
+The CLI reads one JSON object from stdin and writes one JSON result. Keep session
+tokens in private files/stdin rather than process arguments or shared logs:
 
 ```sh
 printf '%s\n' '{"command":"projects"}' | docker compose exec -T backend apodect
 docker compose exec -T backend apodect < /private/request.json
 ```
 
-Use the deployment `key` from `projects` as `project`. `inspect` reads the
-coordinator, `index` refreshes all three local projections, and `operations`
-shows execution state without exposing signed transaction bytes. `transport_status`
-accepts a Project key and route ID to read provider diagnostics without changing
-contract accounting.
+Use the returned deployment `key` as `project`.
 
-Start authentication with `login_challenge` and the `chain` and `address`.
-Sign its returned message using that chain's wallet standard; `login` accepts
-`challenge`, `signature` and, for NEAR, `public_key`. It returns the session token.
-`link_challenge` additionally takes `session`; `link_wallet` consumes that
-challenge with the same session. `profile`, `update_profile` and `logout` use
-the session token. `update_profile` saves `name` and `username` (either may be null).
-Choosing a username makes the profile and its verified addresses discoverable
-by that exact handle to signed-in users; it does not grant a project role.
+| Commands | Purpose |
+| --- | --- |
+| `projects`, `inspect`, `index` | List deployments; refresh coordinator or all chain views |
+| `operations`, `transport_status` | Inspect journal state or provider diagnostics |
+| `retry_operation` | Explicit retry of a definitively failed operation |
+| `login_challenge`, `login`, `logout` | Sign in/out using a wallet proof |
+| `link_challenge`, `link_wallet`, `profile`, `update_profile` | Manage a profile and verified wallets |
+| `funding_proposal` | Inspect a full funding proposal and quoted costs |
+| `prepare_local`, `prepare_coordinator`, `prepare_apply` | Prepare unsigned actor transactions |
 
-`prepare_local` accepts the session, Project key, actor address, chain and a typed
-action: create task, request budget, withdraw, return funds, release, finalize or
-fund. NEAR additionally takes a decimal `storage_deposit`; Solana token actions
-take the actor's `token_account`. The returned instructions include the exact
-spender approval or storage registration where needed. The wallet supplies
-fresh gas fees, nonce or recent blockhash and signs the returned transactions in
-order. The worker discovers the resulting finalized activity independently.
+The [command enum](../apps/backend/src/bin/apodect.rs) and
+[action types](../apps/backend/src/actions.rs) define exact input fields.
+`prepare_apply` persists validated quotes before returning the manager's Apply
+transaction; an unaffordable request returns `Waiting`. Fees remain separate
+from agent principal.
 
-User action amounts and returned funding costs are decimal strings in token
-base units. NEAR intents carry `args_base64`: decode it and pass the resulting
-bytes directly to the FunctionCall action. Do not parse and stringify those
-arguments in JavaScript; coordinator amounts may exceed its exact integer range.
-
-`prepare_coordinator` prepares the typed owner/authority decisions, including
-approval, task controls, invoice handling and plan recovery. `prepare_apply`
-combines fresh coordinator balances with validated provider quotes and persists
-those quotes before returning the authority's unsigned Apply call. `funding_proposal`
-offers the same read/quote workflow for inspection. An unaffordable full request
-returns `Waiting`; fees are not subtracted from the agent's requested principal.
-The exact JSON variants are defined by the small command enum in
-`apps/backend/src/bin/apodect.rs` and action types in `actions`.
+Sign returned transactions in order with the required wallet. It supplies fresh
+nonce/blockhash and gas fees. For NEAR, decode `args_base64` and pass its bytes
+directly to the FunctionCall action: parsing/restringifying in JavaScript can
+corrupt large integer arguments. Solana actions include the receiving token
+account and, when needed, its creation and rent deposit.
 
 ## Configuration and checks
 
-`APODECT_CONFIG` points to deployment JSON containing verified network identities,
-coordinator/Project bindings, native token addresses and provider asset IDs.
-Each Project has a human-readable `name`; renaming it does not change its contract identity.
-`APP_HOST` and `APP_PORT` select the HTTP listener (defaults `0.0.0.0:3001`).
-For a native local launch, use `APP_HOST=127.0.0.1`.
-Each Project records `ethereum_start_block`, the exact factory creation block,
-so receipt discovery begins at the deployment rather than Ethereum genesis.
-Local bootstrap generates it. Public deployments supply it explicitly along
-with the provider URL and optional API-key file. Public quotes requiring a
-deposit memo are rejected because the current vault dispatch cannot carry one.
-Public 1Click routing requires mainnet identities and the native USDC contract
-or mint in each chain, matched against the provider catalog and six decimals.
-Quote signatures are verified with the production key published by the
-[official SDK](https://github.com/defuse-protocol/one-click-sdk-typescript/blob/ae8b24e064785c8cba8081263e03e52fed4de089/src/quote-signature.ts)
-before execution terms are accepted. A provider key rotation requires updating
-that trusted key. The local simulator uses its explicit separate admission path.
+`APODECT_CONFIG` selects deployment JSON. Project `name` is a display label;
+addresses, genesis and binding domains define its identity. Local bootstrap exports
+the configuration automatically. See the [deployment example](deployment.example.json)
+and [public setup](cross-chain-providers.md#public-deployment-setup)
+for manually registered deployments.
 
-Only the worker mounts `APODECT_*_RELAYER_KEY_FILE` credentials in live Compose.
-Localnet exports newly generated gas keys into a separate volume; its owner,
-authority and agent keys stay inside localnet. `APP_ORIGIN` binds wallet messages
-to the application, and public configuration supplies `APODECT_SOLANA_CLUSTER`.
+The API uses `APP_HOST`/`APP_PORT` (default `0.0.0.0:3001`) and `APP_ORIGIN`.
+Use `APP_HOST=127.0.0.1` for a native HTTP launch. Database settings are `PGHOST`,
+`PGPORT`, `PGDATABASE`, `PGUSER` and exactly one of `PGPASSWORD` or `PGPASSWORD_FILE`.
+The worker additionally uses `KAFKA_BROKERS`, `APODECT_*_RELAYER_KEY_FILE` and
+`APODECT_NEAR_RELAYER_ACCOUNT`. Public configuration requires
+`APODECT_SOLANA_CLUSTER`. Compose supplies these settings.
 
-Before public startup, `apodect --check-deployment` checks native network and
-vault identities, command keys, Ethereum's creation block, MPC key domains and
-advertised foreign reads, and the current provider token catalog. It needs only
-`APODECT_CONFIG`, without PostgreSQL, authentication or relayer keys; failures
-produce a nonzero exit status. Read-only admission does not prove actual signing,
-delivery or refunds. See [provider setup](cross-chain-providers.md) for binding
-domains before deployment and the remaining funded acceptance checks.
+Run `make check-apps` for formatting, Clippy, Rust tests and frontend checks/builds.
+Database integration tests are opt-in and require a disposable PostgreSQL database
+via `APODECT_TEST_DATABASE_URL`; the outbox test also uses
+`APODECT_TEST_KAFKA_BROKERS`. They create/remove their own schemas:
 
-Run `make check-apps` for formatting, Clippy, Rust tests and the web build.
-Database integration tests require a disposable PostgreSQL database via
-`APODECT_TEST_DATABASE_URL`; the outbox test also uses `APODECT_TEST_KAFKA_BROKERS`. These tests
-create and remove their own schemas, covering replay/link races, atomic
-projections and broker-acknowledgement recovery. Run them explicitly with
-`cargo test --manifest-path apps/Cargo.toml --workspace -- --ignored`.
+```sh
+cargo test --manifest-path apps/Cargo.toml --workspace -- --ignored
+```
 
-The protocol boundaries follow the official
-[NEAR transaction RPC](https://docs.near.org/api/rpc/transactions),
-[Solana signature status RPC](https://solana.com/docs/rpc/http/getsignaturestatuses),
-[SIWE](https://eips.ethereum.org/EIPS/eip-4361),
-[NEP-413](https://github.com/near/NEPs/blob/master/neps/nep-0413.md) and
-[1Click quote API](https://docs.near-intents.org/api-reference/oneclick/request-a-swap-quote).
-Public provider readiness is tracked in [cross-chain providers](cross-chain-providers.md).
+These tests cover replay/link races, atomic projections and broker-acknowledgement
+recovery. They do not establish public MPC or liquidity-provider execution.
