@@ -16,12 +16,14 @@ import {
   Loading,
   Money,
   Notice,
+  ReferenceContent,
   chainNames,
   chains,
   money,
 } from "./ui";
 
 export function ActionFields({
+  project,
   values,
   change,
   target,
@@ -37,6 +39,7 @@ export function ActionFields({
   signingChain,
   onClose,
 }: {
+  project: ProjectDetail;
   values: ActionFieldsValue;
   change: ChangeField;
   target: ActionTarget;
@@ -117,7 +120,11 @@ export function ActionFields({
       </Field>
       {eligibleWallets.length === 0 && (
         <Notice>
-          Link a wallet with the required role in{" "}
+          <p>Link a wallet with the required role to continue.</p>
+          <p>
+            Opening wallet settings closes this draft. Return to the project to
+            enter its details again.
+          </p>
           <Link
             className="text-link"
             to="/app/account"
@@ -167,6 +174,12 @@ export function ActionFields({
       )}
       {target.request && (
         <div className="review">
+          <ReferenceContent
+            project={project.key}
+            digest={target.request.purpose}
+            label="Budget request"
+            compact
+          />
           <dl className="definition-list">
             <div>
               <dt>
@@ -471,6 +484,13 @@ export function ActionReview({
           </span>
           <Money value={financialAmount} />
         </div>
+      )}
+      {target.request && (
+        <ReferenceContent
+          project={project.key}
+          digest={target.request.purpose}
+          label="Budget purpose"
+        />
       )}
       <dl className="definition-list">
         <div>

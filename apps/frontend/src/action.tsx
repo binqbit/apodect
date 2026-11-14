@@ -34,10 +34,97 @@ import {
   actionAmountLimit,
   slippageBasisPoints,
   type ActionTarget,
+  type ActionKind,
   type ActionFieldsValue,
   type ChangeField,
 } from "./action-model";
 export type { ActionTarget } from "./action-model";
+
+function completedActionGuide(kind: ActionKind): {
+  tab: "tasks" | "funding" | "activity";
+  label: string;
+  message: string;
+} | null {
+  switch (kind) {
+    case "create_task":
+    case "request_budget":
+      return {
+        tab: "tasks",
+        label: "View tasks & queue",
+        message:
+          "Follow the request in Tasks & queue. The manager must approve it and start funding before a new allocation becomes available.",
+      };
+    case "approve":
+      return {
+        tab: "tasks",
+        label: "View funding queue",
+        message:
+          "Once this approval appears in the queue, the manager can review funding for the first eligible request. Approval alone does not reserve or allocate funds.",
+      };
+    case "requeue":
+      return {
+        tab: "tasks",
+        label: "View funding queue",
+        message:
+          "Once the request returns to the queue, the manager can review and start a new funding plan when its priority permits. The closed plan does not resume.",
+      };
+    case "apply":
+    case "abort":
+    case "retry":
+    case "resume_plan":
+      return {
+        tab: "activity",
+        label: "Follow funding progress",
+        message:
+          "Follow the plan in Activity. Delivery, refunds and allocation have their own confirmations; pending funds remain unavailable until their outcome is confirmed.",
+      };
+    case "pause":
+    case "continue":
+    case "cancel":
+    case "reclaim":
+    case "out_of_budget":
+    case "withdraw_free":
+    case "invalidate":
+      return {
+        tab: "activity",
+        label: "Follow execution",
+        message:
+          "Check Activity for execution on the destination network. A signed instruction does not by itself confirm the local change or reverse a transfer already accepted.",
+      };
+    case "respond_invoice":
+      return {
+        tab: "funding",
+        label: "View project funding",
+        message:
+          "This response closes the funding request and moves no USDC. If you committed a contribution, use Add funds on the Funding page to transfer it separately.",
+      };
+    case "fund":
+    case "open_invoice":
+      return {
+        tab: "funding",
+        label: "View project funding",
+        message:
+          "Check Funding for the latest project balances and owner requests. Only funds confirmed and synchronized with the project can support new allocations.",
+      };
+    case "withdraw":
+      return {
+        tab: "tasks",
+        label: "Return to task",
+        message:
+          "Use your agent wallet to carry out the work outside Apodect. Return any unused wallet funds before completing the task.",
+      };
+    case "return_funds":
+    case "release":
+      return {
+        tab: "tasks",
+        label: "Return to task",
+        message:
+          "These funds return to the project without refilling the task’s allowance. Complete the task only after all unused funds are returned and pending transfers have settled.",
+      };
+    default:
+      return null;
+  }
+}
 
 export function ActionDialog({
   project,
@@ -466,6 +553,23 @@ export function ActionDialog({
       (receipt) =>
         receipt.status === "failed" && receipt.transactionId === null,
     ) ?? false;
+  const nextStep = allFinalized ? completedActionGuide(kind) : null;
+  const completedTarget = prepared?.target;
+  const completedTaskId =
+    completedTarget?.task?.id ?? completedTarget?.request?.task;
+  const completedTaskChain =
+    completedTarget?.task?.chain ?? completedTarget?.request?.chain;
+  const nextStepPath = nextStep
+    ? `/app/projects/${encodeURIComponent(project.key)}/${nextStep.tab}${
+        nextStep.tab === "tasks" &&
+        kind !== "approve" &&
+        kind !== "requeue" &&
+        completedTaskId &&
+        completedTaskChain
+          ? `?${new URLSearchParams({ chain: completedTaskChain, task: completedTaskId })}`
+          : ""
+      }`
+    : null;
   function close() {
     if (!busy) onClose();
   }
@@ -553,6 +657,9 @@ export function ActionDialog({
             </p>
             <h2 id="action-title">{copy[kind].title}</h2>
             <p id="action-description">{copy[kind].description}</p>
+            <p className="action-context">
+              Project <strong>{project.key}</strong>
+            </p>
           </div>
           <button
             className="close-button"
@@ -591,6 +698,7 @@ export function ActionDialog({
             className="form-stack"
           >
             <ActionFields
+              project={project}
               values={values}
               change={change}
               target={target}
@@ -633,12 +741,13 @@ export function ActionDialog({
               <>
                 <Notice tone={allFinalized ? "success" : "info"}>
                   {allFinalized
-                    ? "Wallet transactions finalized. The project view updates after the indexer confirms the resulting state. Cross-chain delivery, when needed, continues separately."
+                    ? "Wallet transactions finalized. The project view updates as confirmed network changes are synchronized. Cross-chain delivery, when needed, continues separately."
                     : unresolved
                       ? "The wallet flow is incomplete. Check its recorded transactions in Account & wallets before preparing another payment. An unknown result never means the transfer failed."
                       : nothingSubmitted
                         ? "Nothing was submitted. You can review the action again when your wallet is ready."
                         : "The failed step has a confirmed outcome. Earlier successful steps remain recorded; prepare a fresh action to continue from current chain state."}
+                  {nextStep && <p>{nextStep.message}</p>}
                 </Notice>
                 <details className="disclosure">
                   <summary>Reviewed transaction</summary>
@@ -677,7 +786,15 @@ export function ActionDialog({
             {receipts ? (
               <>
                 <div className="button-row">
-                  <button className="button" onClick={close}>
+                  {nextStep && nextStepPath && (
+                    <Link className="button" to={nextStepPath} onClick={close}>
+                      {nextStep.label}
+                    </Link>
+                  )}
+                  <button
+                    className={`button${nextStep ? " secondary" : ""}`}
+                    onClick={close}
+                  >
                     Back to project
                   </button>
                   {!allFinalized && !unresolved && (
@@ -740,6 +857,10 @@ export function ActionDialog({
                       disabled={busy}
                       onConnect={sign}
                     />
+                    <p className="review-note" style={{ marginTop: 12 }}>
+                      Opening wallet settings closes this draft. Return to the
+                      project to enter its details again.
+                    </p>
                     <Link
                       className="text-link"
                       to="/app/account"

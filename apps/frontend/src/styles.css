@@ -900,6 +900,13 @@ button.text-link {
   padding-top: 24px;
   border-top: 1px solid var(--line);
 }
+.dialog-heading .action-context {
+  font-size: 0.75rem;
+  font-family: var(--mono);
+  overflow-wrap: anywhere;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
 @media (max-width: 850px) {
   .guide-roles {
     grid-template-columns: minmax(0, 1fr);
