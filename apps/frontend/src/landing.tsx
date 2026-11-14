@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { Brand } from "./ui";
+import { Brand, GuideLink } from "./ui";
 
 export function Landing() {
   return (
@@ -11,7 +11,7 @@ export function Landing() {
         <Brand />
         <nav aria-label="Main navigation">
           <a href="#how-it-works">How it works</a>
-          <a href="#built-for-teams">For your team</a>
+          <GuideLink>User guide</GuideLink>
           <Link className="button small" to="/app">
             Open workspace <span aria-hidden="true">↗</span>
           </Link>
@@ -29,17 +29,15 @@ export function Landing() {
               <em>Under control.</em>
             </h1>
             <p className="hero-description">
-              Review requests, fund approved work and track USDC across
-              Ethereum, Solana and NEAR. Your team sets the budget. You review
-              and sign the decisions.
+              Fund independent agents from a shared project budget. Review their
+              requests, allocate USDC across Ethereum, Solana and NEAR, and
+              follow each task from approval to completion.
             </p>
             <div className="hero-actions">
               <Link to="/app" className="button">
                 Open your workspace <span aria-hidden="true">↗</span>
               </Link>
-              <a href="#how-it-works" className="text-link">
-                See how it works <span aria-hidden="true">↓</span>
-              </a>
+              <GuideLink>How to get started →</GuideLink>
             </div>
             <div className="hero-note">
               <span aria-hidden="true">↳</span> One project. Three networks.
@@ -77,7 +75,7 @@ export function Landing() {
                   </svg>
                 </span>
                 <strong>Ethereum</strong>
-                <span>Local vault</span>
+                <span>Project funds</span>
               </div>
               <div>
                 <span className="network-icon" aria-hidden="true">
@@ -86,14 +84,14 @@ export function Landing() {
                   </svg>
                 </span>
                 <strong>Solana</strong>
-                <span>Local vault</span>
+                <span>Project funds</span>
               </div>
               <div>
                 <span className="network-icon" aria-hidden="true">
                   N
                 </span>
                 <strong>NEAR</strong>
-                <span>Local vault</span>
+                <span>Project funds</span>
               </div>
             </div>
             <div className="diagram-task">
@@ -126,7 +124,7 @@ export function Landing() {
               <b>03</b> Full allocation or wait
             </span>
             <span>
-              <b>04</b> Confirmed chain evidence
+              <b>04</b> Confirmed balances and transfers
             </span>
           </div>
         </div>
@@ -172,8 +170,8 @@ export function Landing() {
               <span className="step-number">04</span>
               <h3>Work. Return. Complete.</h3>
               <p>
-                The agent withdraws from its confirmed allocation, returns the
-                remainder and completes the task.
+                The agent withdraws from its allocation, returns wallet
+                leftovers and releases unused funds before completing the task.
               </p>
             </article>
           </div>
@@ -196,11 +194,10 @@ export function Landing() {
             <div className="role-cards">
               <article>
                 <span className="role-number">01 / OWNER</span>
-                <h3>Set the direction.</h3>
+                <h3>Fund and oversee projects.</h3>
                 <p>
-                  Fund the project, appoint its manager and keep control over
-                  unused funds. Pause a task when its next step needs a
-                  decision.
+                  Start in Funding to add project funds. Appoint a manager in
+                  Settings, then follow tasks and pause withdrawals when needed.
                 </p>
                 <details className="disclosure">
                   <summary>Owner controls</summary>
@@ -210,13 +207,14 @@ export function Landing() {
                     <li>Pause, reclaim and continue</li>
                   </ul>
                 </details>
+                <GuideLink section="owner">Owner guide →</GuideLink>
               </article>
               <article>
                 <span className="role-number">02 / MANAGER</span>
-                <h3>Keep work moving.</h3>
+                <h3>Approve and fund work.</h3>
                 <p>
-                  Review budgets, follow approval priority and coordinate
-                  liquidity. See what is ready, waiting or needs attention.
+                  Start in Tasks & queue to review budget requests. Approve the
+                  work, then start funding for the first eligible request.
                 </p>
                 <details className="disclosure">
                   <summary>Manager controls</summary>
@@ -227,14 +225,14 @@ export function Landing() {
                   </ul>
                   <small>The manager is the contract’s authority role.</small>
                 </details>
+                <GuideLink section="manager">Manager guide →</GuideLink>
               </article>
               <article>
                 <span className="role-number">03 / AGENT</span>
-                <h3>Focus on the task.</h3>
+                <h3>Request and use a budget.</h3>
                 <p>
-                  Request funds where the work happens. Use a confirmed
-                  allocation through your own wallet and account for what
-                  remains.
+                  Choose New task in a project, explain the work and request a
+                  budget. Your task shows when its allocation is ready to use.
                 </p>
                 <details className="disclosure">
                   <summary>Agent controls</summary>
@@ -244,6 +242,7 @@ export function Landing() {
                     <li>Returns and completion reports</li>
                   </ul>
                 </details>
+                <GuideLink section="agent">Agent guide →</GuideLink>
               </article>
             </div>
           </div>
@@ -273,11 +272,10 @@ export function Landing() {
               </p>
             </article>
             <article>
-              <h3>Wallet funds belong to the agent.</h3>
+              <h3>Withdrawn funds leave project control.</h3>
               <p>
-                Once withdrawn, funds are independently controlled. A pause
-                stops new withdrawals; it does not reverse purchases or seize a
-                wallet.
+                Once confirmed, a pause stops new vault withdrawals. It cannot
+                reverse purchases or recover funds from an independent wallet.
               </p>
             </article>
           </div>
@@ -291,8 +289,8 @@ export function Landing() {
               into one view.
             </h2>
             <p>
-              Connect a wallet to see your projects and the actions you can
-              take.
+              Sign in with your wallet, open a project and choose your next
+              action. Your project roles determine which controls are available.
             </p>
           </div>
           <Link to="/app" className="button">
@@ -303,7 +301,7 @@ export function Landing() {
       <footer className="public-footer container">
         <Brand />
         <p>Coordinated budgets. Independent execution.</p>
-        <a href="#how-it-works">How it works ↑</a>
+        <GuideLink>User guide →</GuideLink>
       </footer>
     </div>
   );

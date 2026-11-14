@@ -8,7 +8,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 
 export const chains = ["ethereum", "solana", "near"] as const;
 export const chainNames: Record<Chain, string> = {
@@ -197,6 +197,28 @@ export function Loading({
       <span className="spinner" />
       {children}
     </div>
+  );
+}
+
+export function GuideLink({
+  section,
+  children,
+}: {
+  section?: "owner" | "manager" | "agent" | "funding" | "wallets";
+  children: ReactNode;
+}) {
+  const location = useLocation();
+  return (
+    <Link
+      className="text-link"
+      to={`/guide${section ? `#${section}` : ""}`}
+      state={{
+        returnTo: `${location.pathname}${location.search}${location.hash}`,
+        returnState: location.state,
+      }}
+    >
+      {children}
+    </Link>
   );
 }
 

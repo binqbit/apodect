@@ -27,6 +27,7 @@ import {
   Empty,
   ErrorState,
   Field,
+  GuideLink,
   Loading,
   Money,
   Notice,
@@ -270,8 +271,11 @@ export function AccountPage() {
       >
         {account
           ? "Manage the wallets you use across projects and networks."
-          : "Connect a wallet and sign a message to access your projects. No transaction or token approval is needed to sign in."}
+          : "Sign a message to create your profile or return with a linked wallet. No transaction or token approval is needed to sign in."}
       </PageTitle>
+      <p className="page-help">
+        <GuideLink section="wallets">Sign-in and wallet guide →</GuideLink>
+      </p>
       {!account && requestedPath && (
         <Notice>Sign in to return to the page you opened.</Notice>
       )}
@@ -369,7 +373,7 @@ export function AccountPage() {
             title={account ? "Link another wallet" : "Choose a network"}
             description={
               account
-                ? "Sign with the new wallet to link it to this profile."
+                ? "Add a wallet to this profile by signing a message with it."
                 : "Choose the network of the wallet you want to use."
             }
           >
@@ -455,6 +459,14 @@ export function AccountPage() {
                 Management decisions are signed on NEAR. Agent tasks and owner
                 deposits use the wallet on their execution network. Each action
                 shows the required wallet before you sign.
+              </p>
+            </details>
+            <details className="disclosure">
+              <summary>How do I keep one profile across networks?</summary>
+              <p>
+                Sign in with a wallet already linked to your profile, then use
+                Link another wallet to add a new one. Signing in separately with
+                an unlinked wallet creates a different profile.
               </p>
             </details>
           </div>
@@ -660,17 +672,27 @@ export function ProjectsPage() {
           </button>
         }
       >
-        Separate budgets. A shared view of work across networks.
+        Open a project to review its budget, manage tasks and follow funding.
       </PageTitle>
+      <p className="page-help">
+        <GuideLink>New here? Find your next step →</GuideLink>
+      </p>
       {result.error !== undefined && (
         <ErrorState error={result.error} retry={result.refresh} />
       )}
       {result.loading && !result.data && <Loading />}
       {result.data?.length === 0 && (
         <Panel>
-          <Empty title="No projects are available yet">
-            Project deployments appear here once connected to this platform.
-            Your wallet profile is ready.
+          <Empty
+            title="No projects are available yet"
+            action={
+              <GuideLink section="owner">
+                How projects become available →
+              </GuideLink>
+            }
+          >
+            Your profile is ready. Ask the person managing this Apodect
+            deployment to connect your project, then refresh this page.
           </Empty>
         </Panel>
       )}

@@ -26,9 +26,10 @@ import {
 } from "./api";
 import { sameAddress, type ConnectedWallet } from "./wallets";
 import { Landing } from "./landing";
+import { Guide } from "./guide";
 import { AccountPage, ProjectsPage } from "./pages";
 import { ProjectPage } from "./project";
-import { Brand, ErrorState, Loading, short } from "./ui";
+import { Brand, ErrorState, GuideLink, Loading, short } from "./ui";
 
 interface SessionContext {
   account: Account | null;
@@ -165,6 +166,12 @@ function WorkspaceLayout() {
             </span>
             Account & wallets
           </NavLink>
+          <GuideLink>
+            <span className="nav-icon" aria-hidden="true">
+              ?
+            </span>
+            User guide
+          </GuideLink>
         </nav>
         <div className="sidebar-bottom">
           <Link to="/">How Apodect works ↗</Link>
@@ -244,6 +251,7 @@ function RouteFocus() {
       document.title = "Apodect · Agent budgets across chains";
     if (pathname === previousPath.current) return;
     previousPath.current = pathname;
+    if (pathname === "/guide") return;
     const frame = requestAnimationFrame(() => {
       document.querySelector<HTMLElement>("main")?.focus();
       window.scrollTo(0, 0);
@@ -260,6 +268,7 @@ export function App() {
       <SessionProvider>
         <Routes>
           <Route path="/" element={<Landing />} />
+          <Route path="/guide" element={<Guide />} />
           <Route
             path="/wallet/callback"
             element={
