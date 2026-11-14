@@ -1767,6 +1767,111 @@ main:focus {
 .field textarea::placeholder {
   color: var(--muted);
 }
+.select-trigger {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+  min-height: 48px;
+  padding: 11px 13px;
+  background: var(--inset);
+  border: 1px solid #52627c;
+  border-radius: var(--radius);
+  color: var(--ink);
+  text-align: left;
+  line-height: 1.5;
+}
+.select-trigger:hover:not(:disabled),
+.select-trigger[data-state="open"] {
+  border-color: var(--accent);
+}
+.select-trigger[data-placeholder] {
+  color: var(--muted);
+}
+.select-value {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.select-chevron {
+  display: flex;
+  flex-shrink: 0;
+  margin-left: auto;
+  color: var(--muted);
+}
+.select-trigger[data-state="open"] .select-chevron {
+  transform: rotate(180deg);
+}
+.select-option-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  color: var(--muted);
+}
+.select-menu {
+  z-index: 60;
+  width: var(--radix-select-trigger-width);
+  max-width: calc(100vw - 24px);
+  max-height: min(340px, var(--radix-select-content-available-height));
+  overflow: hidden;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: 0 12px 36px #0006;
+}
+.select-viewport {
+  padding: 5px;
+}
+.select-option {
+  display: flex;
+  align-items: center;
+  position: relative;
+  min-height: 44px;
+  padding: 10px 35px 10px 10px;
+  gap: 10px;
+  border-radius: 4px;
+  color: var(--ink);
+  font-size: 0.875rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+  user-select: none;
+}
+.select-option > span:not(.select-option-icon):not(.select-check) {
+  min-width: 0;
+}
+.select-option[data-state="checked"] {
+  background: var(--raised);
+}
+.select-option[data-highlighted] {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+  background: var(--accent-soft);
+}
+.select-check {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  color: var(--accent);
+}
+.select-check .icon {
+  width: 16px;
+  height: 16px;
+}
+.select-scroll {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  color: var(--muted);
+  background: var(--paper);
+}
+.select-scroll-up .icon {
+  transform: rotate(180deg);
+}
 .field input[type="file"] {
   padding: 8px;
   color: var(--muted);

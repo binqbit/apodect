@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api, type PlanView, type ProjectDetail } from "./api";
 import type { ActionTarget } from "./action";
+import { Icon, NetworkIcon } from "./icons";
 import {
   Address,
   ChainBadge,
@@ -14,6 +15,7 @@ import {
   Panel,
   ReferenceContent,
   Status,
+  Select,
   chains,
   chainNames,
   short,
@@ -183,17 +185,22 @@ export function Activity({
           />
         </Field>
         <Field label="Activity network">
-          <select
+          <Select
             value={network}
-            onChange={(event) => setNetwork(event.target.value)}
-          >
-            <option value="all">All networks</option>
-            {chains.map((chain) => (
-              <option key={chain} value={chain}>
-                {chainNames[chain]}
-              </option>
-            ))}
-          </select>
+            onValueChange={setNetwork}
+            options={[
+              {
+                value: "all",
+                label: "All networks",
+                icon: <Icon name="projects" />,
+              },
+              ...chains.map((chain) => ({
+                value: chain,
+                label: chainNames[chain],
+                icon: <NetworkIcon chain={chain} />,
+              })),
+            ]}
+          />
         </Field>
       </div>
       {selectedPlan && (
@@ -213,15 +220,32 @@ export function Activity({
       >
         <div className="list-filters">
           <Field label="Funding plan status">
-            <select
+            <Select
               value={planStatus}
-              onChange={(event) => setPlanStatus(event.target.value)}
-            >
-              <option value="all">All plans</option>
-              <option value="open">In progress</option>
-              <option value="attention">Needs attention</option>
-              <option value="settled">Funded or closed</option>
-            </select>
+              onValueChange={setPlanStatus}
+              options={[
+                {
+                  value: "all",
+                  label: "All plans",
+                  icon: <Icon name="queue" />,
+                },
+                {
+                  value: "open",
+                  label: "In progress",
+                  icon: <Icon name="clock" />,
+                },
+                {
+                  value: "attention",
+                  label: "Needs attention",
+                  icon: <Icon name="alert" />,
+                },
+                {
+                  value: "settled",
+                  label: "Funded or closed",
+                  icon: <Icon name="check" />,
+                },
+              ]}
+            />
           </Field>
         </div>
         <p className="filter-summary" role="status">
@@ -286,15 +310,32 @@ export function Activity({
         </p>
         <div className="list-filters">
           <Field label="Command and operation status">
-            <select
+            <Select
               value={operationStatus}
-              onChange={(event) => setOperationStatus(event.target.value)}
-            >
-              <option value="all">All operations</option>
-              <option value="open">In progress</option>
-              <option value="attention">Failed or needs attention</option>
-              <option value="settled">Confirmed or invalidated</option>
-            </select>
+              onValueChange={setOperationStatus}
+              options={[
+                {
+                  value: "all",
+                  label: "All operations",
+                  icon: <Icon name="queue" />,
+                },
+                {
+                  value: "open",
+                  label: "In progress",
+                  icon: <Icon name="clock" />,
+                },
+                {
+                  value: "attention",
+                  label: "Failed or needs attention",
+                  icon: <Icon name="alert" />,
+                },
+                {
+                  value: "settled",
+                  label: "Confirmed or invalidated",
+                  icon: <Icon name="check" />,
+                },
+              ]}
+            />
           </Field>
         </div>
         {project.commands.length > 0 && (

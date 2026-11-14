@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
+import { NetworkIcon } from "./icons";
 import {
   api,
   ApiError,
@@ -27,6 +28,7 @@ import {
   NetworkPicker,
   Notice,
   ReferenceContent,
+  Select,
   chainNames,
   money,
 } from "./ui";
@@ -282,23 +284,21 @@ export function ActionFields({
         </div>
       )}
       <Field label={`Signing wallet · ${chainNames[signingChain]}`}>
-        <select
+        <Select
           value={actor}
-          onChange={(event) => {
-            change("actor", event.target.value);
+          onValueChange={(value) => {
+            change("actor", value);
             change("tokenAccount", "");
           }}
           required
-        >
-          {eligibleWallets.length === 0 && (
-            <option value="">No eligible linked wallet</option>
-          )}
-          {eligibleWallets.map((item) => (
-            <option key={item.address} value={item.address}>
-              {item.address}
-            </option>
-          ))}
-        </select>
+          disabled={busy || eligibleWallets.length === 0}
+          placeholder="No eligible linked wallet"
+          options={eligibleWallets.map((item) => ({
+            value: item.address,
+            label: item.address,
+            icon: <NetworkIcon chain={signingChain} />,
+          }))}
+        />
       </Field>
       {eligibleWallets.length === 0 && (
         <Notice>
@@ -529,17 +529,17 @@ export function ActionFields({
               signing.
             </Notice>
           ) : (
-            <select
+            <Select
               value={tokenAccount}
-              onChange={(event) => change("tokenAccount", event.target.value)}
+              onValueChange={(value) => change("tokenAccount", value)}
+              disabled={busy}
               required
-            >
-              {tokenAccounts.map((item) => (
-                <option key={item.address} value={item.address}>
-                  {item.address} · {money(item.amount)} USDC
-                </option>
-              ))}
-            </select>
+              options={tokenAccounts.map((item) => ({
+                value: item.address,
+                label: `${item.address} · ${money(item.amount)} USDC`,
+                icon: <NetworkIcon chain="solana" />,
+              }))}
+            />
           )}
         </Field>
       )}

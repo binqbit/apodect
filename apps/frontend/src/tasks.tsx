@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useSearchParams } from "react-router-dom";
 import type { ProjectDetail, RequestView, TaskView } from "./api";
 import type { ActionTarget } from "./action";
+import { Icon, NetworkIcon } from "./icons";
 import {
   Address,
   ChainBadge,
@@ -12,6 +13,7 @@ import {
   Notice,
   Panel,
   ReferenceContent,
+  Select,
   Status,
   chains,
   chainNames,
@@ -305,29 +307,55 @@ export function Tasks({
             />
           </Field>
           <Field label="Task network">
-            <select
+            <Select
               value={network}
-              onChange={(event) => setNetwork(event.target.value)}
-            >
-              <option value="all">All networks</option>
-              {chains.map((chain) => (
-                <option key={chain} value={chain}>
-                  {chainNames[chain]}
-                </option>
-              ))}
-            </select>
+              onValueChange={setNetwork}
+              options={[
+                {
+                  value: "all",
+                  label: "All networks",
+                  icon: <Icon name="projects" />,
+                },
+                ...chains.map((chain) => ({
+                  value: chain,
+                  label: chainNames[chain],
+                  icon: <NetworkIcon chain={chain} />,
+                })),
+              ]}
+            />
           </Field>
           <Field label="Task status">
-            <select
+            <Select
               value={status}
-              onChange={(event) => setStatus(event.target.value)}
-            >
-              <option value="all">All tasks</option>
-              <option value="review">Awaiting approval</option>
-              <option value="open">Open tasks</option>
-              <option value="paused">Owner paused</option>
-              <option value="finished">Completed or canceled</option>
-            </select>
+              onValueChange={setStatus}
+              options={[
+                {
+                  value: "all",
+                  label: "All tasks",
+                  icon: <Icon name="queue" />,
+                },
+                {
+                  value: "review",
+                  label: "Awaiting approval",
+                  icon: <Icon name="clock" />,
+                },
+                {
+                  value: "open",
+                  label: "Open tasks",
+                  icon: <Icon name="play" />,
+                },
+                {
+                  value: "paused",
+                  label: "Owner paused",
+                  icon: <Icon name="pause" />,
+                },
+                {
+                  value: "finished",
+                  label: "Completed or canceled",
+                  icon: <Icon name="check" />,
+                },
+              ]}
+            />
           </Field>
         </div>
         <p className="filter-summary" role="status">

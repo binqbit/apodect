@@ -10,6 +10,9 @@ import {
 } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { Icon, NetworkIcon, type IconName } from "./icons";
+import { Select } from "./select";
+
+export { Select } from "./select";
 
 export const chains = ["ethereum", "solana", "near"] as const;
 export const chainNames: Record<Chain, string> = {
@@ -379,24 +382,27 @@ export function Field({
 }) {
   const id = useId();
   const hintId = `${id}-hint`;
-  // Associate a label with the native control even when an amount adornment
-  // wraps it. Supporting text is a description, never part of its name.
+  // Associate labels with controls even when an adornment wraps them.
+  // Supporting text is a description, never part of the accessible name.
   function associate(nodes: ReactNode): ReactNode {
     return Children.map(nodes, (node) => {
       if (
         !isValidElement<{
           children?: ReactNode;
           id?: string;
+          "aria-labelledby"?: string;
           "aria-describedby"?: string;
         }>(node)
       )
         return node;
       if (
-        typeof node.type === "string" &&
-        ["input", "select", "textarea"].includes(node.type)
+        node.type === Select ||
+        (typeof node.type === "string" &&
+          ["input", "select", "textarea"].includes(node.type))
       ) {
         return cloneElement(node, {
           id,
+          ...(node.type === Select ? { "aria-labelledby": `${id}-label` } : {}),
           "aria-describedby": hint ? hintId : undefined,
         });
       }
@@ -407,7 +413,9 @@ export function Field({
   }
   return (
     <div className="field">
-      <label htmlFor={id}>{label}</label>
+      <label htmlFor={id} id={`${id}-label`}>
+        {label}
+      </label>
       {associate(children)}
       {hint && <small id={hintId}>{hint}</small>}
     </div>

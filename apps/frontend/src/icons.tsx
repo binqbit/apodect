@@ -3,6 +3,7 @@ import type { Chain } from "./api";
 
 const paths = {
   check: "m5 12 4 4L19 6",
+  chevron: "m6 9 6 6 6-6",
   confirmed: "M22 11.1V12a10 10 0 1 1-5.9-9.1M22 4 12 14l-3-3",
   clock: "M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0ZM12 6v6l4 2",
   pause: "M8 5v14M16 5v14",

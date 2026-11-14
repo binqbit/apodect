@@ -612,6 +612,12 @@ export function ActionDialog({
         ref={dialog}
         tabIndex={-1}
         onKeyDown={(event) => {
+          if (
+            event.defaultPrevented ||
+            !event.currentTarget.contains(event.target as Node)
+          ) {
+            return;
+          }
           if (event.key === "Escape") {
             event.preventDefault();
             event.stopPropagation();
@@ -622,7 +628,10 @@ export function ActionDialog({
               dialog.current?.querySelectorAll<HTMLElement>(
                 'button:not(:disabled), a[href], input:not(:disabled), textarea:not(:disabled), select:not(:disabled), summary, [tabindex="0"]',
               ) ?? [],
-            ).filter((element) => element.getClientRects().length > 0);
+            ).filter(
+              (element) =>
+                element.tabIndex >= 0 && element.getClientRects().length > 0,
+            );
             if (!elements.length) {
               event.preventDefault();
               return;

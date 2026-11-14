@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import type { ProjectDetail } from "./api";
 import type { ActionTarget } from "./action";
+import { Icon } from "./icons";
 import {
   ChainBadge,
   Empty,
@@ -11,6 +12,7 @@ import {
   Panel,
   ReferenceContent,
   Status,
+  Select,
   chainNames,
 } from "./ui";
 
@@ -143,14 +145,27 @@ export function Funding({
         {project.invoices.length > 0 && (
           <div className="list-filters">
             <Field label="Funding request status">
-              <select
+              <Select
                 value={status}
-                onChange={(event) => setStatus(event.target.value)}
-              >
-                <option value="all">All requests</option>
-                <option value="open">Awaiting owner response</option>
-                <option value="closed">Closed requests</option>
-              </select>
+                onValueChange={setStatus}
+                options={[
+                  {
+                    value: "all",
+                    label: "All requests",
+                    icon: <Icon name="queue" />,
+                  },
+                  {
+                    value: "open",
+                    label: "Awaiting owner response",
+                    icon: <Icon name="clock" />,
+                  },
+                  {
+                    value: "closed",
+                    label: "Closed requests",
+                    icon: <Icon name="check" />,
+                  },
+                ]}
+              />
             </Field>
           </div>
         )}
