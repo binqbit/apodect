@@ -65,6 +65,11 @@ no high availability.
 Use `docker compose logs -f` for startup logs and `docker compose down` to stop.
 The localnet container shuts down its nodes and services before exiting.
 
+`up --wait` waits for the nodes and provider, worker reconciliation, and the API's
+initial Project views. API readiness at `/api/health/ready` requires a reachable
+database and an indexed coordinator plus all three local vaults for each configured
+Project. It does not certify live RPC/provider availability after startup; inspect
+worker and localnet health when an operation stops progressing.
 Localnet stays unready until startup has exported the current deployment and relay
 credentials; healthy RPC listeners alone are insufficient.
 

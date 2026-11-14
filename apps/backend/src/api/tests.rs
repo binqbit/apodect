@@ -36,7 +36,7 @@ use std::{
 use uuid::Uuid;
 
 /// Exercise the actual HTTP boundary with verified signatures and PostgreSQL:
-/// CSRF rejection, cookie isolation, finalized role/read models and logout replay.
+/// Readiness, CSRF rejection, cookie isolation, finalized role/read models and logout replay.
 #[actix_web::test]
 #[ignore = "requires isolated PostgreSQL via APODECT_TEST_DATABASE_URL"]
 async fn browser_identity_and_finalized_project_flow() -> Result<()> {
@@ -221,6 +221,15 @@ async fn browser_identity_and_finalized_project_flow() -> Result<()> {
     )
     .await;
 
+    let request = test::TestRequest::get()
+        .uri("/api/health/ready")
+        .to_request();
+    assert_eq!(
+        test::call_service(&app, request).await.status(),
+        StatusCode::SERVICE_UNAVAILABLE,
+        "HTTP configuration alone must not mark an unindexed deployment ready"
+    );
+
     let request = test::TestRequest::get().uri("/api/config").to_request();
     let public: Value = test::call_and_read_body_json(&app, request).await;
     for chain in Chain::ALL {
@@ -377,7 +386,15 @@ async fn browser_identity_and_finalized_project_flow() -> Result<()> {
     }]);
     sqlx::query("INSERT INTO project_views(project,height,block_hash,state,domains,plans,commands,invoices,requests,queue_head) VALUES($1,10,'final-block',$2,$3,$4,$5,$6,$7,$8)")
         .bind(&key).bind(state).bind(json!(domains)).bind(json!(plans)).bind(commands).bind(invoices).bind(requests).bind(&coordinator_request).execute(&pool).await?;
-    for chain in Chain::ALL {
+    let request = test::TestRequest::get()
+        .uri("/api/health/ready")
+        .to_request();
+    assert_eq!(
+        test::call_service(&app, request).await.status(),
+        StatusCode::SERVICE_UNAVAILABLE,
+        "The coordinator projection alone does not establish local vault readiness"
+    );
+    for (position, chain) in Chain::ALL.into_iter().enumerate() {
         let tasks = if chain == Chain::Solana {
             json!([{"id":task_id,"agent":address,"state":0,"paused":false,"started":false,"available":LARGE,"issued":0,"recovered":0,"pending_outflow":0,"control_nonce":0,"live_request":request_id,"report":null}])
         } else if chain == Chain::Ethereum {
@@ -405,6 +422,18 @@ async fn browser_identity_and_finalized_project_flow() -> Result<()> {
             "funding": [],
         });
         sqlx::query("INSERT INTO vault_views(project,chain,height,block_hash,state) VALUES($1,$2,10,'final-block',$3)").bind(&key).bind(chain.as_str()).bind(snapshot).execute(&pool).await?;
+        let request = test::TestRequest::get()
+            .uri("/api/health/ready")
+            .to_request();
+        assert_eq!(
+            test::call_service(&app, request).await.status(),
+            if position + 1 == Chain::ALL.len() {
+                StatusCode::NO_CONTENT
+            } else {
+                StatusCode::SERVICE_UNAVAILABLE
+            },
+            "Readiness requires all three configured vault projections"
+        );
     }
     sqlx::query("INSERT INTO effects(project,id,chain,network,intent,transaction,state) VALUES($1,'test','solana','network','{}',$2,'submitted')").bind(&key).bind(json!({"signature":"public-transaction","bytes_base64":"SECRET_SIGNED_BYTES"})).execute(&pool).await?;
     let request = test::TestRequest::get()
@@ -729,6 +758,14 @@ async fn browser_identity_and_finalized_project_flow() -> Result<()> {
     );
 
     pool.close().await;
+    let request = test::TestRequest::get()
+        .uri("/api/health/ready")
+        .to_request();
+    assert_eq!(
+        test::call_service(&app, request).await.status(),
+        StatusCode::SERVICE_UNAVAILABLE,
+        "A previously initialized deployment must not report ready after losing the database"
+    );
     sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
         .execute(&admin)
         .await?;

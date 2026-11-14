@@ -1,5 +1,7 @@
 //! Same-origin browser API. Wallet signatures authorize users; this layer never
 //! signs owner, authority or agent transactions.
+use std::time::Duration;
+
 mod auth;
 mod references;
 pub use auth::BrowserConfig;
@@ -157,6 +159,7 @@ pub fn configure(config: &mut web::ServiceConfig) {
                     .add((header::X_CONTENT_TYPE_OPTIONS, "nosniff")),
             )
             .wrap(from_fn(auth::browser_guard))
+            .route("/health/ready", web::get().to(readiness))
             .route("/config", web::get().to(public_config))
             .route("/auth/challenge", web::post().to(auth::login_challenge))
             .route("/auth/verify", web::post().to(auth::login))
@@ -227,6 +230,47 @@ fn deployment<'a>(
             )
         })
 }
+
+/// The HTTP listener alone is not ready for the workspace: every configured
+/// Project needs its initial coordinator and three local vault projections.
+/// Live RPC availability is tracked separately by the synchronization worker.
+async fn readiness(app: web::Data<Application>) -> ApiResult {
+    let projects: Vec<_> = app
+        .indexer
+        .config
+        .projects
+        .iter()
+        .map(|project| app.indexer.config.project_key(project))
+        .collect();
+    let ready: bool = tokio::time::timeout(
+        Duration::from_secs(2),
+        sqlx::query_scalar(
+            "SELECT count(*) = cardinality($1::text[]) FROM project_views AS p \
+             WHERE p.project = ANY($1) AND \
+             (SELECT count(*) FROM vault_views AS v WHERE v.project = p.project) = 3",
+        )
+        .bind(&projects)
+        .fetch_one(&app.indexer.store.pool),
+    )
+    .await
+    .map_err(|_| {
+        ApiError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "readiness_timeout",
+            "The database did not respond to the readiness check in time.",
+        )
+    })?
+    .map_err(|error| ApiError::service(error.into()))?;
+    if !ready {
+        return Err(ApiError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "indexing_pending",
+            "The initial project and vault snapshots are still being indexed.",
+        ));
+    }
+    Ok(HttpResponse::NoContent().finish())
+}
+
 async fn public_config(
     app: web::Data<Application>,
     browser: web::Data<BrowserConfig>,

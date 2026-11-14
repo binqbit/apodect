@@ -64,6 +64,13 @@ references and unsigned actions. `/api/projects/{key}/actions/local`,
 the browser does not construct a second set of business rules. Amounts and
 contract IDs cross this interface as decimal strings to preserve their precision.
 
+`GET /api/health/ready` returns `204` once PostgreSQL is reachable and every
+configured Project has its initial coordinator and three local vault projections.
+It returns `503` while indexing is incomplete or the database is unavailable.
+Compose uses this gate before starting the frontend; `/api/config` alone does not
+establish workspace readiness. Ongoing chain/provider failures remain visible
+through worker health and synchronization state.
+
 Browser sessions use an HttpOnly, SameSite Strict cookie, with Secure enabled for
 HTTPS. Mutations require the configured `APP_ORIGIN`; responses are not cached.
 The RPC bridge accepts only the native methods needed by wallet signing and
