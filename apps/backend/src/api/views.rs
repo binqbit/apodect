@@ -148,6 +148,7 @@ fn summary_value(
     }
     Ok(json!({
         "key": app.indexer.config.project_key(project),
+        "name": project.name,
         "coordinator": project.coordinator,
         "project_id": project.project_id,
         "indexed": projection.is_some_and(|p| p.vaults.len()==3),

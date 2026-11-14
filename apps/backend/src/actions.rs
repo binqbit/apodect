@@ -521,6 +521,7 @@ mod tests {
         }))
         .unwrap();
         let project = ProjectConfig {
+            name: "Test project".into(),
             coordinator: "coordinator.near".into(),
             project_id: "01".repeat(32),
             ethereum_start_block: 0,

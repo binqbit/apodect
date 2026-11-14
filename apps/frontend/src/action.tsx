@@ -658,7 +658,7 @@ export function ActionDialog({
             <h2 id="action-title">{copy[kind].title}</h2>
             <p id="action-description">{copy[kind].description}</p>
             <p className="action-context">
-              Project <strong>{project.key}</strong>
+              Project <strong>{project.name}</strong>
             </p>
           </div>
           <button

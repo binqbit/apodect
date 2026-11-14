@@ -713,7 +713,7 @@ export function ProjectsPage() {
                 </span>
                 <RoleBadges roles={project.roles} />
               </div>
-              <h2>{short(project.coordinator, 14)}</h2>
+              <h2>{project.name}</h2>
               <p>
                 {project.indexed
                   ? `${project.task_count} tasks · Ethereum, Solana & NEAR`

@@ -60,6 +60,7 @@ def export_runtime(network):
         },
         "projects": [
             {
+                "name": "Apodect local project",
                 "coordinator": network.coordinator,
                 "project_id": network.config["project_id"],
                 "ethereum_start_block": start_block,

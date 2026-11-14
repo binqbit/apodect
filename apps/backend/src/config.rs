@@ -79,10 +79,23 @@ pub struct NearConfig {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ProjectConfig {
+    pub name: String,
     pub coordinator: String,
     pub project_id: String,
     pub ethereum_start_block: u64,
     pub domains: BTreeMap<Chain, DomainConfig>,
+}
+
+impl ProjectConfig {
+    /// A display-name change must not replace the immutable custody binding.
+    pub fn deployment_binding(&self) -> serde_json::Value {
+        serde_json::json!({
+            "coordinator": self.coordinator,
+            "project_id": self.project_id,
+            "ethereum_start_block": self.ethereum_start_block,
+            "domains": self.domains,
+        })
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -123,6 +136,12 @@ impl Config {
         config.ethereum.genesis_hash =
             format!("0x{}", hex::encode(word(&config.ethereum.genesis_hash)?));
         for project in &mut config.projects {
+            project.name = project.name.trim().to_owned();
+            ensure!(
+                (1..=100).contains(&project.name.chars().count())
+                    && !project.name.chars().any(char::is_control),
+                "Project name must contain 1 to 100 characters without control characters"
+            );
             project.project_id = hex::encode(word(&project.project_id)?);
             project
                 .coordinator

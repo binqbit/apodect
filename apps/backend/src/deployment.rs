@@ -416,7 +416,7 @@ mod tests {
             "near":{"rpc_url":"http://localhost","genesis":{
                 "chain_id":"fixture","genesis_time":"2026-11-11T00:00:00Z","genesis_height":0,"validators":[]
             }},
-            "projects":[{"coordinator":"coordinator.near","project_id":"01".repeat(32),"ethereum_start_block":1,"domains":{
+            "projects":[{"name":"Test project","coordinator":"coordinator.near","project_id":"01".repeat(32),"ethereum_start_block":1,"domains":{
                 "ethereum":{"domain":"unbound","vault":"0x1111111111111111111111111111111111111111","asset":"0x2222222222222222222222222222222222222222","asset_id":"eth"},
                 "solana":{"domain":"unbound","vault":"11111111111111111111111111111111","asset":"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v","asset_id":"sol"},
                 "near":{"domain":"unbound","vault":"vault.near","asset":"usdc.near","asset_id":"near"}

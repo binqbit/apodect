@@ -48,7 +48,7 @@ export function ProjectPage() {
     <>
       <PageTitle
         eyebrow="Project workspace"
-        title={short(project.coordinator, 20)}
+        title={project.name}
         action={
           <div className="button-row">
             <button

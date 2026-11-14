@@ -122,6 +122,7 @@ async fn browser_identity_and_finalized_project_flow() -> Result<()> {
     let signing_key = SigningKey::from_bytes(&[81; 32]);
     let address = bs58::encode(signing_key.verifying_key().to_bytes()).into_string();
     let project = ProjectConfig {
+        name: "Research operations".into(),
         coordinator: "coordinator.near".into(),
         project_id: number_word(10),
         ethereum_start_block: 0,
@@ -178,7 +179,13 @@ async fn browser_identity_and_finalized_project_flow() -> Result<()> {
     let key = config.project_key(&project);
     let store = Store::new(pool.clone());
     store
-        .register_project(&key, &serde_json::to_value(&project)?)
+        .register_project(&key, &project.deployment_binding())
+        .await?;
+    let mut renamed = project.clone();
+    renamed.name = "Research and engineering".into();
+    assert_eq!(config.project_key(&renamed), key);
+    store
+        .register_project(&key, &renamed.deployment_binding())
         .await?;
     let ethereum = Ethereum::new(rpc, 31337, config.ethereum.genesis_hash.parse()?);
     let liquidity = Liquidity::new(&config.liquidity)?;
@@ -400,6 +407,7 @@ async fn browser_identity_and_finalized_project_flow() -> Result<()> {
         "no-store"
     );
     let detail: Value = test::read_body_json(response).await;
+    assert_eq!(detail["name"], project.name);
     assert_eq!(detail["available"], (u128::from(LARGE) * 3).to_string());
     assert_eq!(detail["tasks"][0]["available"], LARGE.to_string());
     assert_eq!(detail["invoices"][0]["amount"], LARGE.to_string());

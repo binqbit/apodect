@@ -55,6 +55,7 @@ export interface ProjectRoles {
 }
 export interface ProjectSummary {
   key: string;
+  name: string;
   coordinator: string;
   project_id: string;
   indexed: boolean;

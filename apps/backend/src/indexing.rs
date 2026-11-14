@@ -113,7 +113,7 @@ impl Indexer {
                 .store
                 .register_project(
                     &indexer.config.project_key(project),
-                    &serde_json::to_value(project)?,
+                    &project.deployment_binding(),
                 )
                 .await?;
         }

@@ -226,7 +226,7 @@ async fn exercise_paused_recovery(
         "solana":{"rpc_url":rpc_url,"genesis_hash":"local"},
         "near":{"rpc_url":rpc_url,"genesis":genesis},
         "liquidity":{"url":rpc_url,"local_simulator":true,"api_key_file":null},
-        "projects":[{"coordinator":"coordinator.near","project_id":"01".repeat(32),"ethereum_start_block":0,
+        "projects":[{"name":"Test project","coordinator":"coordinator.near","project_id":"01".repeat(32),"ethereum_start_block":0,
             "domains":{
                 "near":{"domain":"00".repeat(32),"vault":"vault.near","asset":"usdc.near","asset_id":"usdc"},
                 "ethereum":{"domain":"00".repeat(32),"vault":"0x1111111111111111111111111111111111111111","asset":"0x2222222222222222222222222222222222222222","asset_id":"usdc"}
@@ -235,7 +235,7 @@ async fn exercise_paused_recovery(
     let project = config.projects[0].clone();
     let key = config.project_key(&project);
     store
-        .register_project(&key, &serde_json::to_value(&project)?)
+        .register_project(&key, &project.deployment_binding())
         .await?;
     let rpc = Rpc::new(rpc_url)?;
     let near = near::NearClient::connect(rpc.clone(), &config.near.genesis).await?;
@@ -767,7 +767,7 @@ async fn exercise_outage_reconciliation(
         "solana":{"rpc_url":rpc_url,"genesis_hash":"local"},
         "near":{"rpc_url":rpc_url,"genesis":OutageRpc::genesis()},
         "liquidity":{"url":rpc_url,"local_simulator":true,"api_key_file":null},
-        "projects":[{"coordinator":"coordinator.near","project_id":"01".repeat(32),"ethereum_start_block":0,
+        "projects":[{"name":"Test project","coordinator":"coordinator.near","project_id":"01".repeat(32),"ethereum_start_block":0,
             "domains":{
                 "ethereum":{"domain":"01".repeat(32),"vault":"0x1111111111111111111111111111111111111111","asset":"0x2222222222222222222222222222222222222222","asset_id":"usdc"},
                 "solana":{"domain":"02".repeat(32),"vault":"11111111111111111111111111111111","asset":"11111111111111111111111111111111","asset_id":"usdc"},
@@ -777,7 +777,7 @@ async fn exercise_outage_reconciliation(
     let project = config.projects[0].clone();
     let key = config.project_key(&project);
     store
-        .register_project(&key, &serde_json::to_value(&project)?)
+        .register_project(&key, &project.deployment_binding())
         .await?;
     let rpc = Rpc::new(rpc_url)?;
     let near = near::NearClient::connect(rpc.clone(), &config.near.genesis).await?;

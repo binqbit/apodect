@@ -40,6 +40,7 @@
   },
   "projects": [
     {
+      "name": "REPLACE_WITH_YOUR_PROJECT_NAME",
       "coordinator": "REPLACE_WITH_COORDINATOR_ACCOUNT",
       "project_id": "REPLACE_WITH_64_HEX_DIGITS",
       "ethereum_start_block": 0,

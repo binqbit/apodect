@@ -87,6 +87,10 @@ class BackendRuntimeTests(unittest.TestCase):
             self.assertNotIn("MUST_NOT_BE_EXPORTED", configuration)
             self.assertNotIn("private_key", configuration)
             self.assertEqual(
+                json.loads(configuration)["projects"][0]["name"],
+                "Apodect local project",
+            )
+            self.assertEqual(
                 json.loads(configuration)["ethereum"]["rpc_url"],
                 "http://localnet:28545",
             )

@@ -138,6 +138,7 @@ The exact JSON variants are defined by the small command enum in
 
 `APODECT_CONFIG` points to deployment JSON containing verified network identities,
 coordinator/Project bindings, native token addresses and provider asset IDs.
+Each Project has a human-readable `name`; renaming it does not change its contract identity.
 `APP_HOST` and `APP_PORT` select the HTTP listener (defaults `0.0.0.0:3001`).
 For a native local launch, use `APP_HOST=127.0.0.1`.
 Each Project records `ethereum_start_block`, the exact factory creation block,
