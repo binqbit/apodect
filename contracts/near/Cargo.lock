@@ -44,7 +44,7 @@ checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
 name = "apodect-near-coordinator"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "apodect-near-protocol",
  "near-sdk",
@@ -52,7 +52,7 @@ dependencies = [
 
 [[package]]
 name = "apodect-near-integration"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "near-workspaces",
@@ -62,7 +62,7 @@ dependencies = [
 
 [[package]]
 name = "apodect-near-localnet"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "near-crypto",
@@ -76,7 +76,7 @@ dependencies = [
 
 [[package]]
 name = "apodect-near-mock-mpc"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "apodect-near-protocol",
  "near-sdk",
@@ -84,7 +84,7 @@ dependencies = [
 
 [[package]]
 name = "apodect-near-project"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "apodect-near-protocol",
  "near-contract-standards",
@@ -93,21 +93,21 @@ dependencies = [
 
 [[package]]
 name = "apodect-near-protocol"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "near-sdk",
 ]
 
 [[package]]
 name = "apodect-near-route-escrow"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "near-sdk",
 ]
 
 [[package]]
 name = "apodect-near-test-ft"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "near-contract-standards",
  "near-sdk",
@@ -115,7 +115,7 @@ dependencies = [
 
 [[package]]
 name = "apodect-near-workspace"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "near-sdk",
 ]
