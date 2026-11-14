@@ -65,6 +65,17 @@ no high availability.
 Use `docker compose logs -f` for startup logs and `docker compose down` to stop.
 The localnet container shuts down its nodes and services before exiting.
 
+Localnet stays unready until startup has exported the current deployment and relay
+credentials; healthy RPC listeners alone are insufficient.
+
+If startup fails, inspect `docker compose ps -a` and
+`docker compose logs --tail=100 localnet backend worker`. A stopped container is
+not a ready deployment. Completed deployments survive normal restarts. An
+interrupted **first** Ethereum or Solana deployment instead reports an incomplete
+bootstrap and refuses to guess which transactions succeeded. For a disposable
+local environment, use the explicit chain reset under [Persistent data](#persistent-data)
+and start again; do not delete volumes to recover a valuable deployment.
+
 ## Using the workspace
 
 Open http://localhost:3000. Signing in creates a profile; linking another wallet

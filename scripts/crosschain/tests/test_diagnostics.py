@@ -15,6 +15,7 @@ from chains import Chain
 from journal import Journal
 from localnet import CHAINS, LocalnetError
 from main import (
+    main,
     require_ready,
     serve_environment,
     service_cycle,
@@ -210,6 +211,56 @@ class DiagnosticTests(unittest.TestCase):
         report["coordinator_read_error"] = "RPC unavailable"
         with self.assertRaisesRegex(LocalnetError, "coordinator"):
             require_ready(report)
+
+    def test_compose_readiness_waits_for_startup_runtime_export(self):
+        data = self.journal.path.parent / "coordination"
+        data.mkdir()
+        runtime = data.parent / "backend-runtime"
+        runtime.mkdir()
+        deployment = runtime / "deployment.json"
+        report = {
+            "initialized": True,
+            "nodes": {name: {"state": "running"} for name in CHAINS},
+            "services": {
+                "provider": {"state": "running"},
+                "relayer": {"state": "external"},
+            },
+            "coordinator_read_error": None,
+        }
+        original_umask = os.umask(0o077)
+        self.addCleanup(os.umask, original_umask)
+        for retained_runtime in (False, True):
+            with self.subTest(retained_runtime=retained_runtime):
+                deployment.unlink(missing_ok=True)
+                if retained_runtime:
+                    deployment.write_text("previous deployment and genesis")
+                with (
+                    patch.dict(os.environ, {"APODECT_RELAYER": "external"}),
+                    patch("main.DATA", data),
+                    patch("main.status", return_value=report) as inspect,
+                    patch("builtins.print"),
+                ):
+                    # Nodes and provider can be healthy while startup still owns
+                    # this lock and has not committed the new application export.
+                    with (data.parent / ".lock").open("a") as startup:
+                        fcntl.flock(startup, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        with patch.object(
+                            sys, "argv", ["localnet", "status", "--require-ready"]
+                        ):
+                            with self.assertRaisesRegex(
+                                LocalnetError, "lifecycle command is active"
+                            ):
+                                main()
+                        inspect.assert_not_called()
+                        with patch.object(sys, "argv", ["localnet", "status"]):
+                            main()
+                        inspect.assert_called_once_with()
+                        deployment.write_text("current deployment and genesis")
+                    with patch.object(
+                        sys, "argv", ["localnet", "status", "--require-ready"]
+                    ):
+                        main()
+                    self.assertEqual(inspect.call_count, 2)
 
     def test_service_cycle_reports_failure_and_clears_it_only_after_recovery(self):
         net = SimpleNamespace(journal=self.journal)

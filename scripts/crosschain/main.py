@@ -384,8 +384,13 @@ def up(stop_requested=None):
     check_startup_cancelled(stop_requested)
     bootstrap()
     check_startup_cancelled(stop_requested)
-    start_service("provider")
     net = network()
+    external = external_relayer()
+    # Publish the complete current deployment before a healthy provider can
+    # expose this environment to application containers.
+    exported = export_runtime(net) if external else None
+    check_startup_cancelled(stop_requested)
+    start_service("provider")
     for _ in range(60):
         check_startup_cancelled(stop_requested)
         try:
@@ -400,8 +405,7 @@ def up(stop_requested=None):
             time.sleep(0.5)
     else:
         raise ValueError("local provider HTTP service did not start")
-    if external_relayer():
-        exported = export_runtime(net)
+    if external:
         print(json.dumps({"ready": True, "relayer": "external", **exported}, indent=2))
         return
     for name in net.chains:
@@ -754,10 +758,21 @@ def main():
                     print(f"{role}:\n" + "".join(collections.deque(output, maxlen=40)))
         return
     if args.action == "status":
-        report = status()
-        print(json.dumps(report, indent=2))
         if args.require_ready:
-            require_ready(report)
+            # Startup keeps this lock until deployment and relay credentials are
+            # exported. Healthy nodes/provider alone do not make apps ready.
+            with (DATA.parent / ".lock").open("a") as lifecycle:
+                try:
+                    fcntl.flock(lifecycle, fcntl.LOCK_SH | fcntl.LOCK_NB)
+                except BlockingIOError as error:
+                    raise LocalnetError(
+                        "local environment is not ready: a lifecycle command is active"
+                    ) from error
+                report = status()
+                require_ready(report)
+        else:
+            report = status()
+        print(json.dumps(report, indent=2))
         return
     if args.action == "export-wallet":
         print(json.dumps(export_wallet(args.chain, args.role), indent=2))

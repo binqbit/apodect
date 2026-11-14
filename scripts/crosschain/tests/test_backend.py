@@ -130,7 +130,7 @@ class BackendRuntimeTests(unittest.TestCase):
                 patch(
                     "main.export_runtime",
                     return_value={"configuration": "deployment.json"},
-                ),
+                ) as export,
                 patch("main.start_service") as start,
                 patch("main.synchronize") as synchronize,
                 patch("builtins.print"),
@@ -140,6 +140,7 @@ class BackendRuntimeTests(unittest.TestCase):
                     "coordinator": "coordinator",
                 }
                 up()
+                export.assert_called_once_with(network)
                 start.assert_called_once_with("provider")
                 synchronize.assert_not_called()
                 require_ready(
@@ -156,6 +157,13 @@ class BackendRuntimeTests(unittest.TestCase):
                         "coordinator_read_error": None,
                     }
                 )
+                start.reset_mock()
+                provider.return_value.health.reset_mock()
+                export.side_effect = OSError("runtime export failed")
+                with self.assertRaisesRegex(OSError, "runtime export failed"):
+                    up()
+                start.assert_not_called()
+                provider.return_value.health.assert_not_called()
             with patch.dict(os.environ, {"APODECT_RELAYER": "external"}):
                 with self.assertRaisesRegex(LocalnetError, "Rust worker"):
                     start_service("relayer")
