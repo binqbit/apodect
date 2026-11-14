@@ -1,10 +1,8 @@
 # Ethereum contracts
 
-The Ethereum vault keeps each Project's USDC separate and enforces its agents'
-spending rights. The NEAR coordinator approves and orders work across chains;
-signed commands can reserve and allocate this vault's funds without giving the
-relayer arbitrary spending authority. See the [contract rules](../../docs/contracts.md)
-and [coordination protocol](../../docs/cross-chain-protocol.md) for the shared behavior.
+Each Project has a separate vault contract created through the Workspace registry.
+See the [contract rules](../../docs/contracts.md) for shared behavior and the
+[vault source](src/ProjectVault.sol) for native calls.
 
 ## Build and check
 
@@ -20,34 +18,18 @@ make check-ethereum
 ./contracts/ethereum/scripts/fmt.sh
 ```
 
-The check builds with the package's compiler settings and exercises token/accounting
-behavior in the EVM. It also enforces normal deployment size limits, including
-factory-embedded creation code. Keep these gates when changing dependencies or
-optimizer settings. `FOUNDRY_SOLC` may select an existing compatible compiler.
-
-## Use the local stack
-
-`make local-up` starts the shared three-chain environment and binds its Ethereum
-Project to the coordinator. This Project starts with zero USDC; fund it or route
-liquidity to it through the [workflow guide](../../docs/cross-chain-development.md).
-The fixture supplies local ETH for gas and a finite provider token inventory.
-Use the common `make local-check`, `make local-smoke`, `make local-down` and
-explicit reset commands from the [local guide](../../docs/local-development.md).
-
-Anvil advances local finality with empty blocks. A restored snapshot can briefly
-precede readable finalized state, so startup waits for finality. An included
-transaction or an RPC timeout does not establish a settled financial effect;
-recovery must reconcile the original signed transaction.
+The check installs locked Soldeer dependencies, checks formatting, enforces EVM
+runtime/initcode size limits and runs tests. It needs no persistent node.
+`FOUNDRY_SOLC` may select an existing compatible compiler.
 
 ## Integration limits
 
-Bind the intended six-decimal, exact-amount, non-rebasing ERC-20 by address.
-Transfer fees and rebasing are unsupported. Direct token donations do not credit
-the Project ledger, and there is no administrative rescue or accounting override.
-Use attributed funding and return operations.
+- Use the exact configured six-decimal, non-rebasing ERC-20. Fee-on-transfer
+  tokens are unsupported; direct donations do not credit the Project ledger.
+- Bindings are fixed, with no upgrade entrypoint or accounting override. Rebuild
+  and redeploy changed artifacts; CREATE2 addresses depend on creation code.
+- Reconcile finalized transactions after uncertain submissions. An included
+  transaction alone does not establish finality.
 
-Vault bindings are fixed and the contracts expose no upgrade entrypoint. Rebuild
-and explicitly redeploy changed artifacts; CREATE2 addresses depend on the exact
-creation code. Use the [vault interface](src/ProjectVault.sol) for call details.
-Local test USDC and simulated delivery/MPC services do not configure a public
-provider deployment; consult the [provider boundaries](../../docs/cross-chain-providers.md).
+The [local guide](../../docs/local-development.md) starts the shared environment;
+the [provider guide](../../docs/cross-chain-providers.md) covers public integration.

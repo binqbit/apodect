@@ -1,10 +1,9 @@
 # NEAR contracts
 
-Each Project holds its own NEP-141 balance in a separate contract account. The
-[coordinator](coordinator/README.md) orders the common budget across chains, while
-Project contracts enforce custody and agent spending rights. The
-[contract rules](../../docs/contracts.md) describe the lifecycle; the
-[protocol](../../docs/cross-chain-protocol.md) defines commands and custody evidence.
+The Workspace factory deploys separate Project accounts, each holding its own
+NEP-141 balance. The coordinator manages the shared funding queue and authenticated
+commands; route receivers attribute deliveries and refunds. See the
+[contract rules](../../docs/contracts.md) and [coordination protocol](../../docs/cross-chain-protocol.md).
 
 ## Build and check
 
@@ -20,37 +19,25 @@ make check-near
 ./contracts/near/scripts/fmt.sh
 ```
 
-The check builds Wasm and exercises real FT transfers in temporary sandboxes;
-it needs no persistent node or public credentials. Use the maintained build
-script because the factory embeds the Project's compiled Wasm.
-
-## Use the local stack
-
-`make local-up` starts all three chains and creates one NEAR Project with 1,000
-local test USDC, bound to the coordinator. Use the common check, smoke, shutdown
-and explicit reset commands in the [local guide](../../docs/local-development.md).
-The [workflow guide](../../docs/cross-chain-development.md) uses
-`./scripts/localnet.sh` for tasks, funding and recovery.
+The check builds Wasm and exercises FT transfers in temporary sandboxes; it needs
+no persistent node or public credentials. Use the maintained build script: the
+factory embeds Project Wasm, and the Project embeds its route receiver.
 
 ## Integration limits
 
-Register the Project and withdrawal recipients with the exact configured FT
-before transferring tokens. Amounts use integer base units and NEP-141 decimal
-strings. Native storage, gas and required call deposits are separate from USDC.
+- Register the Project and withdrawal recipients with the configured FT first.
+  Amounts use NEP-141 integer decimal strings; native storage and gas are separate.
+- Keep native NEAR in the Project for immutable funding receipts, and attach
+  storage/callback deposits to data-growing coordinator calls. MPC 3.18 signing
+  and foreign-verification requests each require one yoctoNEAR. Insufficient
+  funding-receipt storage refunds the incoming FT transfer without ledger credit.
+- Outgoing transfers stay reserved until their private callback settles. Confirmed
+  failure restores funds; an unknown result stays pending. Reconcile the original
+  operation before retrying a payment.
+- Preserve native transaction/receipt history. Changed state or Wasm requires
+  fresh deployments; no automatic migration or upgrade is provided.
 
-Immutable owner-funding receipts consume the Project's native storage reserve.
-Replenish it with an ordinary NEAR transfer when needed. If storage cannot be
-covered, the receiver fails and the standard FT resolver refunds the tokens;
-no funding credit remains. After an ambiguous response, reconcile the original
-funding reference before considering another payment.
-
-Outgoing FT transfers reserve principal before execution. A private callback
-settles each result once; known failure restores funds, while unknown results
-remain reserved. Neither timeout nor owner pause reverses an accepted transfer.
-The native client also preserves unresolved signed transactions for reconciliation.
-
-Local archival storage retains transaction/receipt evidence and grows until reset.
-Changed contract state or Wasm requires fresh disposable deployments; no automatic
-migration or upgrade is provided. For call/DTO details, use the [contract source](project/src/lib.rs)
-and [protocol types](protocol/src/lib.rs). Public MPC, asset and delivery integration
-remain subject to the [provider boundaries](../../docs/cross-chain-providers.md).
+The [Project source](project/src/lib.rs), [coordinator source](coordinator/src/lib.rs)
+and [protocol types](protocol/src/lib.rs) define native interfaces. See
+[local development](../../docs/local-development.md) for startup and
+[provider integration](../../docs/cross-chain-providers.md) for public admission.

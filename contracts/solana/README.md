@@ -1,11 +1,9 @@
 # Solana contracts
 
-The Solana program keeps each Project's funds in its own PDA-controlled token
-vault. It authenticates coordinator commands and preserves local agent control
-over withdrawals and returns. Full funding and actual token receipts determine
-spending rights; provider status alone cannot grant them. The shared
-[contract rules](../../docs/contracts.md) and [protocol](../../docs/cross-chain-protocol.md)
-explain the cross-chain behavior.
+Each Project holds funds in its own PDA-controlled token vault. Instruction
+handlers and their account contexts live together under `src/instructions/`;
+shared records live in `src/state.rs`. See the [contract rules](../../docs/contracts.md)
+for behavior and the [program entrypoints](src/lib.rs) for native calls.
 
 ## Build and check
 
@@ -22,38 +20,20 @@ make check-solana
 ```
 
 The check compiles SBF and executes it with SPL Token instructions in LiteSVM;
-it needs no running validator or wallet. Scripts separate host and SBF outputs
-under `CARGO_TARGET_DIR` so their Rust toolchains do not share incompatible builds.
-Use the crate's generated Anchor builders and [program interface](src/lib.rs)
-when constructing native calls.
-
-## Use the local stack
-
-`make local-up` starts all three chains, preloads the compiled Solana program and
-binds one Project with 100,000 local test USDC. Use the common check, smoke,
-shutdown and explicit reset commands in the [local guide](../../docs/local-development.md).
-Task and funding commands use the shared `./scripts/localnet.sh` workflow.
-
-The persistent validator requires Linux, `curl`, RootlessKit and slirp4netns, with
-unprivileged user/network namespaces, subordinate UID/GID ranges and
-`newuidmap`/`newgidmap`. Installed isolation tools are used when available; the
-adapter also supports their pinned Nix packages. Some validator listeners ignore
-the requested bind address, so the stack isolates the process and publishes only
-loopback RPC, WebSocket and faucet ports. A short checkout/data path may be needed
-for native Unix socket limits.
+it needs no running validator or wallet. Host and SBF outputs remain separate
+under `CARGO_TARGET_DIR`.
 
 ## Integration limits
 
-Only the legacy SPL Token program and the exact configured six-decimal mint are
-accepted. Amounts fit `u64`; transaction fees and account rent are separate from
-USDC principal. Direct vault transfers remain outside the accounted balance.
+- Only the legacy SPL Token program and configured six-decimal mint are accepted.
+  Amounts fit `u64`; native fees and rent are separate from USDC. Direct vault
+  transfers do not credit the ledger.
+- Retain transaction history and immutable receipts for unsettled operations.
+  A pruned or unknown signature is not proof of failure.
+- The development address is preloaded locally. Public deployment needs a chosen
+  program address, matching program/client builds and an upgrade-authority policy.
+  Changed artifacts require a fresh local ledger; accounts are not migrated.
 
-Retain the validator ledger for funding and command evidence. Increasing retention
-cannot restore a pruned transaction, and an unknown signature never authorizes a
-fresh payment. Ledger disk use grows until an explicit local reset.
-
-The development program address is for local preload. A public deployment needs
-its own program address, authority policy, asset and provider configuration.
-Changed program artifacts require a fresh local ledger; existing accounts are
-not migrated automatically. See [provider boundaries](../../docs/cross-chain-providers.md)
-before extending the local simulator setup to public services.
+The persistent validator uses RootlessKit to expose only loopback services.
+See [native prerequisites](../../docs/local-development.md) for namespace setup
+and [provider integration](../../docs/cross-chain-providers.md) for public deployment.
