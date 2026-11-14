@@ -53,7 +53,7 @@ case "${1:-}" in
         mkdir -p "$solana_build_root"
         solana_build_root="$(cd "$solana_build_root" && pwd)"
         CARGO_TARGET_DIR="$solana_build_root/sbf" \
-            cargo build-sbf --sbf-out-dir "$solana_local_dir/build" -- --locked
+            cargo build-sbf --tools-version v1.53 --sbf-out-dir "$solana_local_dir/build" -- --locked
         CARGO_TARGET_DIR="$solana_build_root/host" \
             cargo build --locked --features no-entrypoint --example localnet
         cp "$solana_local_dir/build/apodect_solana.so" "$APODECT_SOLANA_PROGRAM"
