@@ -2212,7 +2212,6 @@ main:focus {
   inset: 0;
   z-index: 30;
   background: rgb(0 0 0 / 60%);
-  backdrop-filter: blur(3px);
   display: flex;
   justify-content: flex-end;
 }
