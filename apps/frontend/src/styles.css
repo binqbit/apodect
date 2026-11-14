@@ -779,6 +779,10 @@ button.text-link {
   color: var(--muted);
 }
 /* Guidance */
+.context-help {
+  margin-top: 16px;
+  font-size: 0.8125rem;
+}
 .page-help {
   margin: -10px 0 24px;
   font-size: 0.8125rem;
@@ -1905,6 +1909,19 @@ main:focus {
 }
 .operation-title h3 {
   font-size: 0.85rem;
+}
+.operation-title > div {
+  min-width: 0;
+}
+.task-link .task-title-text {
+  display: inline;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.task-link {
+  display: block;
+  margin: 6px 0 12px;
 }
 .operation-card > p {
   font-size: 0.8125rem;

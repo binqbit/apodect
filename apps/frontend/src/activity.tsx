@@ -7,10 +7,12 @@ import {
   ChainBadge,
   Empty,
   Field,
+  GuideLink,
   Loading,
   Money,
   Notice,
   Panel,
+  ReferenceContent,
   Status,
   chains,
   chainNames,
@@ -205,6 +207,9 @@ export function Activity({
       <Panel
         title="Funding plans"
         description="Follow each approved budget from reserved funds to the task’s allocation."
+        action={
+          <GuideLink section="funding">Funding stages explained →</GuideLink>
+        }
       >
         <div className="list-filters">
           <Field label="Funding plan status">
@@ -497,10 +502,11 @@ function FundingPlan({
     delivering:
       "Waiting for transfers to be confirmed on the destination network.",
     allocating:
-      "Funds are ready. The task allocation is awaiting confirmation.",
+      "Funds are on the task’s network. Its allocation is awaiting confirmation.",
     settling:
-      "The task is funded. Remaining transfers and refunds are being settled.",
-    funded: "The task has received its full approved allocation.",
+      "The task’s full allocation is confirmed. Remaining transfers and refunds are being settled.",
+    funded:
+      "The full approved amount was allocated to the task. Open the task to see what remains available.",
     aborting: "Stopping new transfers and settling funds already sent.",
     closed:
       "The plan is closed. Review the task for its current funding status.",
@@ -508,28 +514,33 @@ function FundingPlan({
   return (
     <div id={`funding-plan-${plan.id}`} className="operation-card">
       <div className="operation-title">
-        <div>
-          <h3>
-            <Money value={plan.principal} /> to {chainNames[plan.destination]}
-          </h3>
-          <p className="review-note" style={{ marginTop: 7 }}>
-            {progress[plan.status] ?? "Waiting for the next confirmed update."}
-          </p>
-          {request && (
-            <Link
-              className="text-link"
-              to={`${base}/tasks?${new URLSearchParams({ chain: request.chain, task: request.task })}`}
-            >
-              View task {short(request.task, 6)} →
-            </Link>
-          )}
-        </div>
+        <h3>
+          <Money value={plan.principal} /> to {chainNames[plan.destination]}
+        </h3>
         <Status
           value={
             plan.requires_attention && !terminal ? "attention" : plan.status
           }
         />
       </div>
+      <p className="review-note">
+        {progress[plan.status] ?? "Waiting for the next confirmed update."}
+      </p>
+      {request && (
+        <Link
+          className="text-link task-link"
+          to={`${base}/tasks?${new URLSearchParams({ chain: request.chain, task: request.task })}`}
+        >
+          View task:{" "}
+          <ReferenceContent
+            project={project.key}
+            digest={request.purpose}
+            label={short(request.task, 6)}
+            compact
+          />{" "}
+          →
+        </Link>
+      )}
       {plan.error &&
         (terminal ? (
           <details className="disclosure">

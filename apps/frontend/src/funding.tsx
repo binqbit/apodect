@@ -6,6 +6,7 @@ import {
   ChainBadge,
   Empty,
   Field,
+  GuideLink,
   Money,
   Panel,
   ReferenceContent,
@@ -34,7 +35,8 @@ export function Funding({
     <>
       <Panel
         title="Project liquidity"
-        description="Confirmed USDC available for task funding and owner withdrawals."
+        description="Add USDC to the project, or withdraw funds that are not committed to tasks."
+        action={<GuideLink section="owner">Project funding guide →</GuideLink>}
       >
         <div className="network-balances funding-balances">
           {project.chains.map((chain) => (
@@ -43,7 +45,11 @@ export function Funding({
               <strong>
                 <Money value={chain.available} />
               </strong>
-              <p className="review-note">Available to fund</p>
+              <p className="review-note">
+                {chain.observed_at
+                  ? "Available to fund"
+                  : "Awaiting network data"}
+              </p>
               <div className="row-actions">
                 {project.roles.local_owners[chain.chain] && (
                   <button
@@ -75,7 +81,9 @@ export function Funding({
                     to="/app/account"
                     state={{ returnTo, chain: chain.chain }}
                   >
-                    Link owner wallet →
+                    {project.roles.owner
+                      ? "Link owner wallet →"
+                      : "Have the owner wallet? Link it →"}
                   </Link>
                 )}
               </div>
@@ -224,7 +232,9 @@ export function Funding({
                       to="/app/account"
                       state={{ returnTo }}
                     >
-                      Link a local owner wallet to fund this request →
+                      {project.roles.owner
+                        ? "Link a local owner wallet to fund this request →"
+                        : "Only a local owner wallet can fund this request →"}
                     </Link>
                   )}
                 </div>

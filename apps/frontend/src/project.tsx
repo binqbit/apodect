@@ -3,7 +3,7 @@ import { Link, NavLink, useLocation, useParams } from "react-router-dom";
 import { api, type ProjectDetail } from "./api";
 import { ActionDialog, type ActionTarget } from "./action";
 import { RoleBadges } from "./pages";
-import { Tasks, taskStatus } from "./tasks";
+import { Tasks, currentRequest, taskStatus } from "./tasks";
 import { Funding } from "./funding";
 import { Activity } from "./activity";
 import {
@@ -11,6 +11,7 @@ import {
   ChainBadge,
   Empty,
   ErrorState,
+  GuideLink,
   Loading,
   Money,
   Notice,
@@ -149,6 +150,20 @@ function Overview({ project, base }: { project: ProjectDetail; base: string }) {
   );
   const openTasks = project.tasks.filter(
     (task) => !["completed", "canceled"].includes(task.state),
+  );
+  const awaitingApproval = project.requests.filter(
+    (request) =>
+      request.status === "pending" &&
+      currentRequest(
+        project.tasks.find(
+          (task) => task.chain === request.chain && task.id === request.task,
+        ),
+        request,
+      ),
+  ).length;
+  const nextFunding = project.requests.find(
+    (request) =>
+      request.queue_head && request.status === "queued" && !request.plan,
   );
   return (
     <>
@@ -334,7 +349,7 @@ function Overview({ project, base }: { project: ProjectDetail; base: string }) {
                       </strong>
                       <div className="inline-meta">
                         <ChainBadge chain={task.chain} />
-                        <Status value={taskStatus(task)} />
+                        <Status value={taskStatus(task, project.requests)} />
                       </div>
                     </div>
                     <div className="work-item-balance">
@@ -369,12 +384,30 @@ function Overview({ project, base }: { project: ProjectDetail; base: string }) {
         <Panel title="Next steps">
           <div className="panel-body">
             <div className="next-actions">
-              {project.roles.authority && (
-                <Link to={`${base}/tasks`}>
+              {project.roles.authority && awaitingApproval > 0 && (
+                <Link to={`${base}/tasks?status=review#task-list`}>
                   <strong>
                     Review budget requests <span aria-hidden="true">→</span>
                   </strong>
-                  <span>Approve work and start funding in queue order.</span>
+                  <span>
+                    {awaitingApproval}{" "}
+                    {awaitingApproval === 1
+                      ? "request awaits"
+                      : "requests await"}{" "}
+                    your decision. Approval places a request in the funding
+                    queue.
+                  </span>
+                </Link>
+              )}
+              {project.roles.authority && nextFunding && (
+                <Link to={`${base}/tasks`}>
+                  <strong>
+                    Fund the next approved request{" "}
+                    <span aria-hidden="true">→</span>
+                  </strong>
+                  <span>
+                    Review the full amount and delivery costs before signing.
+                  </span>
                 </Link>
               )}
               {(project.roles.owner ||
@@ -407,6 +440,19 @@ function Overview({ project, base }: { project: ProjectDetail; base: string }) {
             >
               Roles & contract details →
             </Link>
+            <p className="context-help">
+              <GuideLink
+                section={
+                  project.roles.authority
+                    ? "manager"
+                    : project.roles.owner
+                      ? "owner"
+                      : "agent"
+                }
+              >
+                Step-by-step workspace guide →
+              </GuideLink>
+            </p>
           </div>
         </Panel>
       </div>

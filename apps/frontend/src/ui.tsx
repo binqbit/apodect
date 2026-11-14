@@ -246,12 +246,14 @@ export function PageTitle({
 }
 
 export function Panel({
+  id,
   title,
   description,
   children,
   action,
   className = "",
 }: {
+  id?: string;
   title?: string;
   description?: string;
   children: ReactNode;
@@ -259,7 +261,11 @@ export function Panel({
   className?: string;
 }) {
   return (
-    <section className={`panel ${className}`}>
+    <section
+      id={id}
+      tabIndex={id ? -1 : undefined}
+      className={`panel ${className}`}
+    >
       {title && (
         <div className="panel-heading">
           <div>

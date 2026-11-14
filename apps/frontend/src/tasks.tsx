@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useSearchParams } from "react-router-dom";
 import type { ProjectDetail, RequestView, TaskView } from "./api";
 import type { ActionTarget } from "./action";
 import {
@@ -7,6 +7,7 @@ import {
   ChainBadge,
   Empty,
   Field,
+  GuideLink,
   Money,
   Notice,
   Panel,
@@ -17,15 +18,29 @@ import {
   short,
 } from "./ui";
 
-export function taskStatus(task: TaskView): string {
+export function taskStatus(task: TaskView, requests: RequestView[]): string {
   if (task.state !== "active") return task.state;
   if (task.paused) return "paused";
   if (BigInt(task.pending_outflow) > 0n) return "withdrawal pending";
   if (task.started) return "executing";
-  return BigInt(task.available) > 0n ? "ready" : "awaiting funding";
+  if (BigInt(task.available) > 0n) return "ready";
+  if (!task.live_request)
+    return BigInt(task.issued) > 0n ? "allocation released" : "budget needed";
+  const request = requests.find(
+    (request) =>
+      request.chain === task.chain && request.id === task.live_request,
+  );
+  if (request?.status === "pending") return "awaiting approval";
+  if (request?.status === "rejecting") return "rejection pending";
+  if (["queued", "reserving", "reserved"].includes(request?.status ?? ""))
+    return "awaiting funding";
+  return "awaiting task update";
 }
 
-function currentRequest(task: TaskView | undefined, request: RequestView) {
+export function currentRequest(
+  task: TaskView | undefined,
+  request: RequestView,
+) {
   return (
     request.local_state === "pending" &&
     task?.live_request === request.id &&
@@ -64,15 +79,36 @@ export function Tasks({
   project: ProjectDetail;
   act: (action: ActionTarget) => void;
 }) {
+  const { hash } = useLocation();
   const [selected, setSelected] = useSearchParams();
   const expanded = selected.has("task")
     ? `${selected.get("chain")}:${selected.get("task")}`
     : null;
   const [mine, setMine] = useState(false);
   const [network, setNetwork] = useState("all");
-  const [status, setStatus] = useState("all");
+  const selectedStatus = selected.get("status");
+  const status =
+    selectedStatus &&
+    ["review", "open", "paused", "finished"].includes(selectedStatus)
+      ? selectedStatus
+      : "all";
   const [search, setSearch] = useState("");
   const base = `/app/projects/${encodeURIComponent(project.key)}`;
+  useEffect(() => {
+    if (hash !== "#task-list") return;
+    const frame = requestAnimationFrame(() => {
+      const list = document.getElementById("task-list");
+      list?.focus({ preventScroll: true });
+      list?.scrollIntoView({ block: "start" });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [hash]);
+  function setStatus(value: string) {
+    const next = new URLSearchParams(selected);
+    if (value === "all") next.delete("status");
+    else next.set("status", value);
+    setSelected(next, { replace: true });
+  }
   function resetFilters() {
     setMine(false);
     setNetwork("all");
@@ -140,7 +176,8 @@ export function Tasks({
     <>
       <Panel
         title="Funding queue"
-        description="Approved requests enter funding in order. A waiting request cannot be bypassed."
+        description="Approval sets the order. The manager starts funding; each task waits for its full amount."
+        action={<GuideLink section="funding">Understand the queue →</GuideLink>}
       >
         {queue.length ? (
           <ol className="funding-queue" aria-label="Funding queue">
@@ -216,6 +253,20 @@ export function Tasks({
                         </Link>
                       </small>
                     )}
+                    {!request.plan &&
+                      current &&
+                      !control &&
+                      !request.queue_head && (
+                        <small>Waiting for earlier approved requests.</small>
+                      )}
+                    {!request.plan &&
+                      current &&
+                      !control &&
+                      request.queue_head &&
+                      request.status === "queued" &&
+                      !project.roles.authority && (
+                        <small>The manager can now review funding.</small>
+                      )}
                   </div>
                 </li>
               );
@@ -228,6 +279,7 @@ export function Tasks({
         )}
       </Panel>
       <Panel
+        id="task-list"
         title="Tasks"
         description="Review budgets, follow progress and manage each task on its network."
         action={
@@ -412,7 +464,7 @@ function TaskCard({
               </span>
             </p>
           </div>
-          <Status value={taskStatus(task)} />
+          <Status value={taskStatus(task, requests)} />
         </div>
         <div className="inline-meta">
           <span>
@@ -455,53 +507,69 @@ function TaskCard({
             </Notice>
           )}
           {task.mine && !terminal && (
-            <div className="row-actions">
+            <>
               {task.state === "active" && !task.paused && available && (
-                <button
-                  className="button small"
-                  onClick={() => act({ kind: "withdraw", task })}
-                >
-                  Withdraw
-                </button>
+                <p className="review-note" style={{ marginBottom: 12 }}>
+                  Withdraw moves your available USDC from the project vault to
+                  your wallet so you can use it for this task.
+                </p>
               )}
-              {!task.live_request &&
-                (task.state === "stopped" ||
-                  (task.state === "active" &&
-                    (BigInt(task.issued) === 0n || task.started))) && (
+              <div className="row-actions">
+                {task.state === "active" && !task.paused && available && (
                   <button
-                    className="button secondary small"
-                    onClick={() => act({ kind: "request_budget", task })}
+                    className="button small"
+                    onClick={() => act({ kind: "withdraw", task })}
                   >
-                    Request budget
+                    Withdraw
                   </button>
                 )}
-              {external > 0n && (
-                <button
-                  className="button secondary small"
-                  onClick={() => act({ kind: "return_funds", task })}
-                >
-                  Return wallet funds
-                </button>
-              )}
-              {available && (
-                <button
-                  className="button secondary small"
-                  onClick={() => act({ kind: "release", task })}
-                >
-                  Release allocation
-                </button>
-              )}
-              {BigInt(task.issued) > 0n &&
-                !available &&
-                BigInt(task.pending_outflow) === 0n && (
+                {!task.live_request &&
+                  (task.state === "stopped" ||
+                    (task.state === "active" &&
+                      (BigInt(task.issued) === 0n || task.started))) && (
+                    <button
+                      className="button secondary small"
+                      onClick={() => act({ kind: "request_budget", task })}
+                    >
+                      Request budget
+                    </button>
+                  )}
+                {external > 0n && (
                   <button
                     className="button secondary small"
-                    onClick={() => act({ kind: "finalize", task })}
+                    onClick={() => act({ kind: "return_funds", task })}
                   >
-                    Complete task
+                    Return wallet funds
                   </button>
                 )}
-            </div>
+                {available && (
+                  <button
+                    className="button secondary small"
+                    onClick={() => act({ kind: "release", task })}
+                  >
+                    Release allocation
+                  </button>
+                )}
+                {BigInt(task.issued) > 0n &&
+                  !available &&
+                  BigInt(task.pending_outflow) === 0n && (
+                    <button
+                      className="button secondary small"
+                      onClick={() => act({ kind: "finalize", task })}
+                    >
+                      Complete task
+                    </button>
+                  )}
+              </div>
+              {BigInt(task.issued) > 0n && (
+                <p className="review-note" style={{ marginTop: 12 }}>
+                  Before completing, return unused funds from your wallet and
+                  release any allocation still in the vault. Returned funds go
+                  back to the project, not to your allowance.{" "}
+                  <GuideLink section="agent">Task completion guide →</GuideLink>
+                </p>
+              )}
+            </>
           )}
           {!terminal && control && (
             <Notice>
