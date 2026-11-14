@@ -1,147 +1,119 @@
-# How It Works
+# How it works
 
-Apodect coordinates a Project budget across independent agents and networks. This guide describes the implemented flow, including waiting, recovery, and owner controls. The local environment executes contracts and token transfers on native nodes; external MPC and liquidity providers are simulated. Public deployment has separate [provider integration requirements](cross-chain-providers.md).
+This guide describes the coordinated project flow shown in the web app.
+The manager is called **authority** in the contracts. Separate
+[standalone contract mode](contracts.md) is available for local contract development.
 
-## 1. Set up the Workspace and Project
+## Join a project
 
-The web workspace shows Projects whose deployments are registered in the application configuration. Each Project has its own budget and separate vault custody. The owner funds the Project and appoints authority, shown as the manager in the interface, to review agents' budget requests and manage funding. Signing in with a wallet creates a profile; management permissions come from the contracts.
+Open the workspace, sign in with a wallet and set your name and username in
+**Account & wallets**. Additional wallets must be linked with proof of ownership.
+Open a project to see your role and available actions.
 
-Any agent can create its own task with a wallet signature; it receives funds only after authority approval and allocation. Different agents can perform different tasks on different networks while drawing on the same Project budget. This does not combine the budgets of separate Projects.
+**Invite people** shares a project link; it grants no permissions. Any agent can
+create its own task. To appoint a manager, the owner uses **Replace manager**,
+finds the person's @username and selects their verified NEAR wallet. Each project
+has one manager; replacing that manager preserves approved tasks and launched plans.
 
-The owner can later replace authority. Already approved tasks and launched deliveries continue unchanged; the new authority receives the role's management rights. This continuity does not grant extra powers to either role.
+The website manages already deployed, registered projects. Ask the deployment
+operator to register a missing project; there is no self-service deployment flow.
 
-## 2. Submit a task and request its budget
+## 1. Fund the project
 
-An agent creates a task on its execution network and requests an amount of USDC, with a reference explaining the purpose. The web application stores the explanation and submits its hash on-chain. That reference does not restrict downstream purchases.
+The owner opens **Funding → Add funds**, selects a network and signs the deposit.
+Confirmed deposits join the shared budget after synchronization. Each project's
+vaults retain their own funds; separate projects cannot spend each other's budgets.
 
-Authority reviews the request and approves or rejects it. Approval fixes the amount and the request's funding priority. It does **not** reserve actual funds, promise immediate delivery, or start the agent's work.
+The manager can request replenishment from the owner. The owner's response closes
+that request even when the contribution is partial. Closing a request does not
+prove a deposit: only confirmed funds can support new allocations.
 
-If an unavailable amount is reported, the agent can revise its plan and submit a new request for approval. A displayed availability amount is a current observation, not a reservation that the agent can claim later without the normal checks.
+## 2. Request and approve work
 
-## 3. Follow approval order
+An agent selects **New task**, chooses its execution network, explains the work
+and requests a USDC budget. The agent signs on that network. Purpose and report
+text is stored by the application with its hash on-chain.
 
-Approved requests follow a strict first-in, first-out order based on **approval**, not request arrival. If the first waiting request lacks its full amount, a later smaller request cannot take funds ahead of it. A task does not gain priority merely because money is already present on its network.
+The manager reviews and approves or rejects the request. Approval fixes its amount
+and funding priority; it does not move or reserve money. The queue follows
+**approval order**, so a later smaller request cannot bypass the waiting head,
+even if its funds are already on the right network.
 
-An approved task may wait for free funds or Project replenishment. The agent receives the full approved amount or nothing; waiting does not turn approval into a smaller grant.
+Temporary shortage leaves the request waiting. An explicit **Out of budget**
+decision stops the task and removes it from the active queue. The agent can create
+a new task through the normal request process.
 
-Authority can explicitly mark a task **out of budget**. That stops the task, removes it from the active queue, and ends further allocation to it in that state. It no longer blocks the remaining queue. The agent can create another task through the ordinary request process. Temporary shortage alone does not automatically trigger this decision.
+## 3. Review funding and wait for allocation
 
-## 4. Start Apply and prepare funding
+The manager selects **Review funding**, checks the allocation, source networks and
+delivery costs, then signs Apply. Previewing a plan reserves nothing. Accepted
+Apply commits the required funds and creates reservation commands.
 
-After approving requests, authority starts **Apply**, the coordinated funding step. The system considers approval priority, Project liquidity on each network, existing commitments, and the costs of delivery.
+The plan uses eligible funds already on the execution network and transfers any
+shortfall directly from other project vaults. The project must cover the full
+approved amount plus delivery costs. A high-fee warning does not waive this check.
+Native gas, rent and storage are paid separately by transaction submitters.
 
-Before committing or sending funds, the Project must be able to cover the full approved amount **plus the applicable delivery costs**. Otherwise funding waits; the agent amount is not reduced.
+Follow **Activity** for the plan's confirmed progress:
 
-Previewing Apply does not reserve money. When authority signs and the coordinator accepts Apply, it commits the required amounts and creates local reservation commands. These commitments remain occupied while reservation and delivery are confirmed, preventing the same funds from being sent or allocated again.
+| Stage | Meaning |
+| --- | --- |
+| Approved | Amount and priority are set; manager funding is still required. |
+| Funding | Funds are being reserved, delivered or assigned; they cannot fund another request. |
+| Allocated | The full amount is confirmed in the task's local allocation. An eligible, unpaused task can withdraw. |
 
-There are two funding paths:
+Source dispatch alone does not prove destination delivery, and delivered funds do
+not become a task allocation until assignment is confirmed. Once an earlier plan's
+reservations are confirmed, the next eligible request may begin funding without
+reusing those commitments.
 
-- **Local allocation.** If the task's full amount is already in the Project vault on the execution network, and remains available after higher-priority needs are accounted for, the contract can assign it locally without a cross-chain transfer.
-- **Cross-chain funding.** The plan uses available local funds and delivers the shortfall directly from other source networks to the execution network.
+## 4. Perform the task
 
-Local presence never overrides queue priority. Funds on Solana, for example, may be needed for an earlier approved task elsewhere before a later Solana task can receive them.
+The agent withdraws from its confirmed allocation using its own wallet. The vault
+limits withdrawals to that allocation. The agent chooses its downstream purchases;
+Apodect cannot freeze or automatically reclaim funds in an independent wallet.
 
-Once a plan's local reservations are confirmed, the next eligible request may begin funding. Earlier commitments stay excluded from available funds. A task becomes ready only after its own full local allocation is confirmed.
+The first accepted local withdrawal marks the task as started. Ordinary
+cancellation then closes. A failed NEAR token-transfer callback restores the
+withdrawal amount but does not undo that first-use marker.
 
-Apply coordinates funding; it does not itself perform the partner agent's downstream business operation.
+An agent needing more funds submits another budget request for approval. It joins
+the ordinary queue. Rejection stops further withdrawals; restarting uses a new
+approved request. This differs from an owner-imposed pause.
 
-## 5. Deliver, synchronize, and make the allocation ready
+## 5. Return leftovers and complete
 
-Delivery uses the NEAR Intents 1Click interface, while Read MPC authenticates relevant facts from other networks. Local simulators exercise these interfaces with real local contract calls and token transfers. Public provider support for the required routes, recipients, refunds and evidence must be validated before public deployment.
+**Return wallet funds** transfers unused USDC back from the agent's wallet.
+**Release allocation** frees unused funds still held for the task inside its vault.
+Neither refills the agent's old allowance. After confirmation and synchronization,
+these funds can support other approved requests; the manager signs their funding.
 
-The system distinguishes these milestones:
+The agent completes the task after clearing its controlled allocation and pending
+outgoing transfers, with an optional report. Expense is issued principal minus
+recovered principal, including wallet returns, allocation releases and reclaims.
+It records accounting, not independent proof of purchases. Return leftovers before
+completion; ordinary completion does not support later expense recalculation.
 
-1. Funds are committed to the approved funding operation.
-2. A source action is submitted and its result is checked.
-3. Funds may be in transit, without being free at either end.
-4. The destination receipt is confirmed.
-5. The full amount is assigned locally to the task and made ready for the agent.
+## Owner controls and recovery
 
-A successful source transaction is not proof of destination delivery. A destination balance is not by itself proof that the task owns an allocation. The same funds are counted once as their location and status change.
-
-NEAR reconciles confirmed local outcomes with the Project view. Until the required facts are confirmed, the system must not display money as freely reusable or an allocation as ready simply because a service expects success.
-
-## 6. Pay delivery fees without cutting the agent's amount
-
-Fees are paid from the **Project budget** and recorded separately. If the Project has 100 USDC, the agent is approved for 60 USDC, and the accounted delivery cost is 1 USDC, the intended result is 60 for the agent and 39 remaining in the Project.
-
-Those numbers are illustrative, not a route quote. The plan budgets USDC transport costs separately from the agent's principal. Native gas, rent and storage are paid separately by transaction submitters.
-
-A configured high-fee threshold warns authority; crossing that warning threshold alone does not block the operation. The Project must still have sufficient funds for both the approved amount and applicable costs. A fee shortfall is a Project funding shortage, not permission to reduce the agent's amount or spend unavailable money.
-
-## 7. Perform the task
-
-The agent may use controlled funds when they are assigned and locked for that agent or when the task is executing, subject to the task's control state. The vault limits issuance to the approved budget.
-
-After withdrawal into an independent wallet, the agent chooses its own operations. Apodect does not enforce a purchase list through the purpose reference. It also cannot automatically freeze, reclaim, or prove the use of funds that have left controlled custody.
-
-The first accepted local withdrawal permanently marks use as started and closes the ordinary cancellation path. A reverted Ethereum or Solana transaction does not count. On NEAR, accepting the asynchronous withdrawal marks start even if its later token transfer fails; a confirmed failure restores the reserved amount without clearing first use.
-
-## 8. Request additional funding when needed
-
-An executing agent can request more budget for its task. The extra request needs approval and then enters the ordinary approval-order queue, without privileged priority because the task is already active.
-
-If the additional-budget request is declined, the task becomes stopped and the reason is recorded separately. A later restart uses a new budget request and approval. This stopped-task path is distinct from an owner-imposed Force Cancel pause; neither path automatically releases uncertain funds or starts work again.
-
-## 9. Replenish the Project
-
-Authority can request additional Project funding from the owner through a replenishment invoice on NEAR. The request describes the amount and may include an explanatory reference.
-
-The owner can respond with full or partial Project funding and may attach a reference explaining the response. After the owner's response, the invoice closes regardless of the amount contributed; any difference is not an open remainder on that invoice.
-
-Closing the invoice does not prove that funds have arrived. Only confirmed eligible funding can support subsequent allocations. Partial funding of the **Project** does not authorize partial issuance to an **agent** or change its approved amount.
-
-## 10. Return remaining funds, then complete
-
-For normal completion, the agent returns external leftovers and explicitly releases any unused allocation still in the vault. It then finalizes the task and may attach a report reference. Finalization requires no controlled remainder or unresolved outgoing transfer.
-
-The system records recovered principal: external returns plus released or reclaimed allocations. Issued principal minus that recovered amount becomes the completed task's expense. The report does not replace evidence of receipt, and the expense label does not prove a particular purchase or the current location of unreturned funds.
-
-The selected normal flow does not include completing first and later returning forgotten leftovers to revise the expense. Return comes before finalization.
-
-An accepted external return immediately makes that amount free for the Project; releasing an unused allocation also retires its spending rights. Neither operation refills the agent's allowance. These funds can serve approved requests through the ordinary queue while any unresolved amounts remain occupied. Receiving a report or changing a task label does not create free cash.
-
-## 11. Cancel before use, or pause with Force Cancel
-
-### Ordinary cancel
-
-Before the agent starts spending, the owner can cancel the task through ordinary cancel. Once use has started, ordinary cancel is no longer available. The separate Force Cancel path remains available.
-
-An ordinary cancellation must account for local state and close relevant rights before its controlled remainder is treated as free. A cancellation request is not proof that a remote action was canceled; already accepted external operations are not automatically reversed.
-
-### Withdraw free Project funds
-
-The owner may withdraw only genuinely free Project funds. Funds already allocated to an agent who has not started must first pass through ordinary cancellation and confirmed closure of the relevant rights before becoming free. Ordinary withdrawal does not take an executing agent's allocated budget. Reclaim after Force Cancel is a separate permission limited to available controlled funds.
-
-### Force Cancel and Continue
-
-**Force Cancel is a pause, not permanent cancellation.** The owner pauses the task, may reclaim its available controlled budget, and decides when that task continues.
-
-While the pause is effective, the agent may return funds into the vault but may not withdraw or spend those funds from it. Authority may restore budget to a task, but restoring funds does not itself resume it. Owner Continue is a separate decision, and it does not grant owner every authority power.
-
-Continue requires an active paused task, a positive confirmed available allocation and no unresolved outgoing task transfer. A retained allocation is sufficient; it needs no new approval or full-original-budget replenishment. Restoring reclaimed funds requires authority approval and funding through the ordinary queue. Continue preserves earlier use and expenses and does not undo a stopped state after rejection.
-
-Apodect cannot forcibly recover money from an independent agent wallet. Those returns depend on the agent. A remote pause takes effect only when the relevant local controls have applied it, not instantly across every network when the owner clicks. Pending external actions require their own outcome checks.
-
-## 12. Resolve delays and unknown outcomes safely
-
-When funding stops progressing, the user should see either a known reason or the last known stage and what could not be verified. No response from a network or delivery provider is not proof that the transfer failed.
-
-Unknown funds remain committed while the system investigates. The default retry limit is three. Reaching it marks the plan as requiring attention and pauses normal funding progression; already-submitted operations and settlement cleanup are still reconciled. The owner can change the limit. A retry may be another check; it is not automatic permission for another funded transfer.
-
-A transfer can be sent again only when doing so is known to be safe without a duplicate financial effect. Exhausting retries or seeing a timeout does not release the funds. Delivery, a refund, a return, or rights closure must be reconciled from the relevant confirmed outcome.
-
-## Example: adapt a request and gather funds across networks
-
-This is an illustrative journey, not an executed test or a fee quote.
-
-1. An agent asks for more budget than is currently available. The system reports the available amount rather than issuing an oversized allocation.
-2. The agent reprioritizes its intended work, explains the revised plan, and submits a new request for approval.
-3. Assume the Project has 40 USDC free on NEAR and 30 USDC free in controlled storage on another network. The revised task needs 60 USDC on Solana.
-4. After approval and when its priority permits funding, the planner quotes deliveries from both source networks directly to Solana. Their combined output must equal 60; the split also accounts for each source's delivery costs.
-5. The display distinguishes reservation, delivery, confirmed arrival, and full local readiness. Committed funds are not counted as free during the process.
-6. The agent performs its revised work, returns remaining funds, and then finalizes with an optional report. The Project records returns, task expense, and delivery costs separately.
-
-The Project has 70 USDC available for 60 of principal plus delivery costs. A source with 40 available cannot deliver all 40 if it also pays transport costs from that balance; the planner adjusts the split accordingly. The task waits if the combined funds cannot cover both principal and costs. The initial oversized request is a separate branch from the revised request for 60.
-
-Read [Concept](concept.md) for the purpose and role model, and [Architecture](architecture.md) for the component and synchronization paths.
+| Action | Effect |
+| --- | --- |
+| Cancel before use | Permanently cancels an unstarted task and closes its spending rights before its controlled funds become free. |
+| Pause withdrawals (Force Cancel) | Blocks local withdrawals once applied. Returns remain allowed; independent wallets are unaffected. |
+| Reclaim | Recovers available controlled allocation from a paused task. It cannot seize an agent wallet. |
+| Restore budget | The manager authorizes restoration; its confirmed request joins the queue for funding. Restoration does not resume the task. |
+| Continue task | The owner resumes an active paused task with a positive allocation and no pending outgoing transfer. A retained allocation suffices; full original funding is unnecessary. |
+| Withdraw project funds | Withdraws only free funds, excluding task allocations, reservations and unsettled transfers. |
+
+Remote controls take effect when the local contract applies them. A click or NEAR
+submission does not prove that another network has already paused withdrawals.
+
+For a delayed wallet operation, check **Account & wallets → Wallet transactions →
+Transaction history** before signing a replacement. For a funding plan, inspect
+**Activity**. Unknown results keep funds committed. The default retry limit is
+three; reaching it requires attention but does not release funds or stop settlement
+cleanup. Retries may recheck an outcome; another funded send requires proof that it
+cannot duplicate the financial effect.
+
+See [Architecture](architecture.md) for synchronization and
+[contract rules](contracts.md) for exact lifecycle conditions.

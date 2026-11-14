@@ -1,19 +1,27 @@
 # Documentation
 
-Start with the product, then use the development guides:
+## Understand and use Apodect
 
-- [Concept](concept.md): who Apodect serves and where its control ends.
-- [Architecture](architecture.md): coordination, local custody, delivery and evidence.
-- [How it works](how-it-works.md): requests, budgets, task execution and recovery.
-- [Contract rules](contracts.md): shared accounting and lifecycle behavior.
-- [Application development](application-development.md): one-command Compose setup with React, Rust, PostgreSQL, Kafka and local chains; live deployment.
-- [Backend services](backend.md): wallet profiles, unsigned actions, indexing, liquidity and durable worker execution.
-- [Native local development](local-development.md): host toolchains, contract checks and local chain reset.
-- [Local workflows](cross-chain-development.md): create tasks, fund Projects and exercise failures.
-- [Coordination protocol](cross-chain-protocol.md): identity, authorization and settlement guarantees.
-- [Provider integration](cross-chain-providers.md): simulated boundaries and public deployment requirements.
+- [Product overview](concept.md): shared budgets, roles and control boundaries.
+- [How it works](how-it-works.md): wallet access, requests, funding, returns and recovery.
+- [Architecture](architecture.md): state ownership, application services and synchronization.
 
-The local stack runs real contracts and test-token transfers. MPC and liquidity
-providers are simulated; a successful local run does not establish public provider
-availability or a public deployment. Package READMEs cover chain-specific setup;
-exact types and method signatures live with the implementation.
+## Run and develop
+
+- [Application setup](application-development.md): default Compose, local wallets, live host, persistence and backups.
+- [Backend services](backend.md): profiles, browser API, operational CLI, workers and configuration.
+- [Native contract development](local-development.md): host prerequisites, checks and chain lifecycle.
+- [Cross-chain workflows](cross-chain-development.md): native harness commands and fault scenarios.
+
+Use Compose for the complete application. Use the native harness for contract
+workflows; stop one before starting the other because they use the same RPC ports.
+
+## Contract and integration reference
+
+- [Contract rules](contracts.md): custody, shared/standalone allocation and lifecycle conditions.
+- [Contract packages](../contracts/README.md): chain-specific builds and constraints.
+- [Coordination protocol](cross-chain-protocol.md): deployment identity, commands, evidence and recovery.
+- [Provider integration](cross-chain-providers.md): local simulators and public deployment requirements.
+
+The runnable stack executes real local contracts and test-token transfers. External
+MPC and liquidity providers are simulated; public execution requires separate validation.

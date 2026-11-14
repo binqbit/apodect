@@ -1,34 +1,37 @@
 # Apodect
 
-Project budget coordination for independent partner agents across networks.
+One shared USDC project budget for independent agents across NEAR, Ethereum and Solana.
 
-A team can know its overall Project budget without knowing in advance how much each agent or network will need. Apodect connects those requests through NEAR coordination and local contract-controlled Project funds on NEAR, Ethereum, and Solana.
+The owner supplies funds, a manager approves requests and starts funding, and agents
+withdraw their confirmed allocations to do the work. A NEAR contract coordinates
+the funding queue and reservations; contracts on each network hold the funds.
+Committed and in-transit money cannot be allocated twice. Returned funds can
+support the next approved task on another network.
 
-The owner allocates each Project's budget and appoints authority. Authority approves agents' requests and starts the funding plan. Agents receive full approved allocations in priority order; committed funds and transfers in progress are not available for a second allocation.
+## Run locally
 
-Partners operate their own agents. Once funds leave controlled vaults for an independent wallet, Apodect cannot automatically freeze or recover them. Agents return remaining funds before completing a task, and the Project records returns, task expenses, and delivery fees separately.
+Follow the [application setup](docs/application-development.md#local-startup) to create
+the two database secret files, then run:
 
-Read the [Concept](docs/concept.md), [Architecture](docs/architecture.md), and [How It Works](docs/how-it-works.md), or start at the [documentation index](docs/README.md).
+```sh
+docker compose up --build --wait
+```
 
-The [contracts](docs/contracts.md) support independent Project lifecycles and an explicitly bound coordinated mode. A NEAR coordinator manages the shared approval queue, reservations and authenticated commands; each network enforces its own custody. The [cross-chain environment](docs/cross-chain-development.md) combines real local RPC transactions with separate local simulations of Chain Signatures, Read MPC and 1Click delivery. See [provider boundaries](docs/cross-chain-providers.md) before connecting public infrastructure.
+Open <http://localhost:3000>. Compose starts the web app, Rust backend and worker,
+PostgreSQL, Kafka, and all three local blockchains with deployed contracts. Local
+MPC and liquidity simulators support the cross-chain flow. Public-provider
+execution requires separate [integration validation](docs/cross-chain-providers.md).
 
-Follow the [application guide](docs/application-development.md) to create database
-secrets, then run `docker compose up --build --wait`. It starts React, Rust/Actix Web,
-PostgreSQL, Kafka, a Rust worker and one localnet service containing all three
-chains, deployed contracts and simulated providers. The worker indexes finalized
-state, relays coordinator commands and reconciles liquidity. Wallet authentication
-and unsigned user actions are available through the web application and
-[backend API](docs/backend.md). The workspace covers tasks, approvals, funding,
-invoices and recovery for registered Projects. The live override excludes localnet.
+## Read next
 
-For contract development directly on the host, `make local-up` remains available;
-stop Compose first because both launchers use the same RPC ports. See
-[native local development](docs/local-development.md) and
-[workflows](docs/cross-chain-development.md) for checks, funding and agent lifecycles.
+- [Product overview](docs/concept.md): the problem, roles and budget boundaries.
+- [How it works](docs/how-it-works.md): signing in, funding tasks, returns and owner controls.
+- [Architecture](docs/architecture.md): contracts, application services and synchronization.
+- [Documentation index](docs/README.md): development, operations and protocol references.
 
-Run `make check` for contract, adapter and service checks, or `make fmt` to apply
-the repository formatters. Public MPC and liquidity integration remain separate
-from the local simulator; see [provider requirements](docs/cross-chain-providers.md).
+The web app manages registered deployments; it does not deploy new projects.
+Agents operate their own wallets. Apodect limits withdrawals from project vaults,
+but cannot automatically recover funds already withdrawn to an independent wallet.
 
 ## License
 
