@@ -592,11 +592,11 @@ impl Coordinator {
             !matches!(p.status.as_str(), "Funded" | "Closed"),
             "PLAN_TERMINAL"
         );
-        // A terminal failed/invalidation receipt proves this command cannot
-        // close the hold later. Expiry alone never establishes nonexecution.
+        // A terminal failed/invalidation receipt proves this cleanup command
+        // cannot execute later. Expiry alone never establishes nonexecution.
         // Replacement is an explicit authority action, rather than an
         // unbounded automatic financial retry; old commands remain immutable.
-        for operation in &mut p.closures {
+        for operation in p.invalidations.iter_mut().chain(p.closures.iter_mut()) {
             let previous = self.commands.get(operation).expect("COMMAND_NOT_FOUND");
             if matches!(
                 previous.state,
@@ -604,13 +604,13 @@ impl Coordinator {
             ) {
                 *operation = self.command(
                     previous.command.words[0],
-                    action::CLOSE_PLAN,
-                    id,
+                    previous.command.action(),
+                    previous.command.plan(),
                     ZERO,
                     ZERO,
                     0,
                     ZERO,
-                    ZERO,
+                    previous.command.words[11],
                     0,
                     env::block_timestamp_ms() / 1000 + 3600,
                 );

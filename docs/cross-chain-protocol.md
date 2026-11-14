@@ -76,10 +76,11 @@ confirmed execution. Cancel cannot reverse an agent withdrawal that already
 started. Restoration grants new budget through the normal FIFO and never clears
 an owner pause. Funds in the agent's independent wallet remain outside vault control.
 
-Abort releases only funds proven to remain controlled. Explicit recovery may
-replace a closure command with an authenticated Failed or Invalidated outcome;
-unknown or pending commands keep their identities. Requeuing requires settled old
-dispatches and attributed refunds, and preserves the original approval position.
+Abort releases only funds proven to remain controlled. Explicit authority recovery
+may replace an invalidation or closure command with an authenticated Failed or
+Invalidated outcome; unknown or pending commands keep their identities. Requeuing
+requires settled old dispatches and attributed refunds, and preserves the original
+approval position.
 
 Use [local workflows](cross-chain-development.md) to exercise these transitions.
 The [coordinator](../contracts/near/coordinator/README.md) explains its deployment

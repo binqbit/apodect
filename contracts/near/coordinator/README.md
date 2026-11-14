@@ -38,10 +38,10 @@ Evidence can arrive out of order. A late command acknowledgement may settle its
 own operation while a newer balance observation remains authoritative. Keep
 native transaction and receipt history so these effects can be reconciled.
 
-Observation retries reuse immutable operations. Authority recovery can replace a
-closure only after a proven Failed or Invalidated outcome; expiry and unknown
-execution do not justify another transfer. Storage-growing calls also need native
-NEAR deposits, which the local tooling supplies.
+Observation retries reuse immutable operations. Authority recovery can replace an
+invalidation or closure command only after a proven Failed or Invalidated
+outcome; expiry and unknown execution do not justify another transfer.
+Storage-growing calls also need native NEAR deposits, which the local tooling supplies.
 
 The local stack simulates MPC and liquidity responses while executing real native
 contracts and token transfers. Public provider admission, key derivation and

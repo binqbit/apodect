@@ -4,6 +4,10 @@ use near_sdk::test_utils::VMContextBuilder;
 use near_sdk::testing_env;
 
 fn context(role: &str) {
+    context_at(role, 0);
+}
+
+fn context_at(role: &str, timestamp_seconds: u64) {
     testing_env!(
         VMContextBuilder::new()
             .current_account_id("coordinator.test.near".parse().unwrap())
@@ -11,6 +15,7 @@ fn context(role: &str) {
             .attached_deposit(NearToken::from_near(10))
             .account_balance(NearToken::from_near(100))
             .prepaid_gas(Gas::from_tgas(300))
+            .block_timestamp(timestamp_seconds * 1_000_000_000)
             .build()
     );
 }
@@ -198,6 +203,84 @@ fn authority_resume_replaces_only_proven_terminal_closures() {
                 blockchain.take_storage();
             });
         }
+    }
+}
+
+#[test]
+fn authority_resume_recovers_failed_abort_invalidation_without_releasing_unknown_funds() {
+    for terminal in [command_state::FAILED, command_state::INVALIDATED] {
+        let mut c = fixture();
+        request(&mut c, 0, 60);
+        context("authority");
+        c.approve(hex(&uint(1)), hex(&uint(0)));
+        let plan = c.apply(hex(&uint(1)), hex(&uint(0)), 60, vec![], 1000);
+        c.abort(plan.clone());
+        let original = c.plans.get(&word(&plan)).unwrap().invalidations[0];
+        let command = c.commands.get(&original).unwrap().command.clone();
+        let count = c.next_command;
+        let expired_at = number(command.words[10]) + 1;
+
+        // Neither attention reset nor expiry proves an unknown command failed.
+        context_at("authority", expired_at);
+        c.resume_plan(plan.clone());
+        assert_eq!(c.next_command, count);
+        assert_eq!(c.plans.get(&word(&plan)).unwrap().invalidations, [original]);
+        assert_eq!(c.domain(uint(1)).pending_reserves, 60);
+        assert_eq!(c.available(uint(1)), 40);
+
+        let mut proof = snapshot(1, 4, 100);
+        proof.words[4] = uint(expired_at);
+        proof.words[32] = original;
+        proof.words[33] = command.digest();
+        proof.words[34] = uint(action::INVALIDATE);
+        proof.words[35] = uint(terminal);
+        c.consume(proof);
+        context_at("relayer", expired_at);
+        c.advance(plan.clone());
+        assert_eq!(c.next_command, count, "no automatic replacement");
+
+        context_at("authority", expired_at);
+        c.resume_plan(plan.clone());
+        let replacement = c.plans.get(&word(&plan)).unwrap().invalidations[0];
+        assert_ne!(replacement, original);
+        let retry = &c.commands.get(&replacement).unwrap().command;
+        assert_eq!(retry.action(), action::INVALIDATE);
+        assert_eq!(retry.words[0], command.words[0]);
+        assert_eq!(retry.words[11], command.words[11]);
+        assert!(number(retry.words[10]) > expired_at);
+        assert_eq!(
+            c.commands.get(&original).unwrap().command.hex(),
+            command.hex()
+        );
+        assert_eq!(c.commands.get(&original).unwrap().state, terminal);
+        assert_eq!(c.domain(uint(1)).pending_reserves, 60);
+        assert_eq!(c.available(uint(1)), 40);
+        c.resume_plan(plan.clone());
+        assert_eq!(
+            c.next_command,
+            count + 1,
+            "unknown replacement stays intact"
+        );
+
+        // Only the new confirmed tombstone retires the original reservation.
+        let mut proof = snapshot(1, 5, 100);
+        proof.words[4] = uint(expired_at);
+        proof.words[32] = replacement;
+        proof.words[33] = c.commands.get(&replacement).unwrap().command.digest();
+        proof.words[34] = uint(action::INVALIDATE);
+        proof.words[35] = uint(command_state::SUCCESS);
+        proof.words[36] = uint(command_state::INVALIDATED);
+        c.consume(proof);
+        assert_eq!(c.domain(uint(1)).pending_reserves, 0);
+        assert_eq!(c.available(uint(1)), 100);
+        context_at("relayer", expired_at);
+        c.advance(plan.clone());
+        assert_eq!(c.get_plan(plan)["status"], "Closed");
+
+        drop(c);
+        near_sdk::mock::with_mocked_blockchain(|blockchain| {
+            blockchain.take_storage();
+        });
     }
 }
 

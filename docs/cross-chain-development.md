@@ -93,8 +93,10 @@ After a timeout, inspect status and the existing operation before retrying.
 An unknown payment keeps its reservation; it does not authorize a second transfer.
 The relayer rechecks evidence every 60 seconds without progress. After the plan's
 retry limit is reached, authority reviews it and may call `resume_plan`; original
-payment identities remain intact. Confirmed failed/invalidated closure commands
-can be replaced, but pending or unknown commands cannot.
+payment identities remain intact. Confirmed failed/invalidated cleanup commands
+(abort invalidations and hold closures) can be replaced, but pending or unknown
+commands cannot. Replacement requires this explicit authority action and preserves
+the original command and its confirmed outcome.
 
 Restart with `make local-down` then `make local-up` to preserve ledgers, bindings
 and journals. Lost receipts require retained chain history. NEAR funding also
