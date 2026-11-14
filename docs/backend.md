@@ -138,6 +138,8 @@ The exact JSON variants are defined by the small command enum in
 
 `APODECT_CONFIG` points to deployment JSON containing verified network identities,
 coordinator/Project bindings, native token addresses and provider asset IDs.
+`APP_HOST` and `APP_PORT` select the HTTP listener (defaults `0.0.0.0:3001`).
+For a native local launch, use `APP_HOST=127.0.0.1`.
 Each Project records `ethereum_start_block`, the exact factory creation block,
 so receipt discovery begins at the deployment rather than Ethereum genesis.
 Local bootstrap generates it. Public deployments supply it explicitly along

@@ -38,6 +38,7 @@ async fn run() -> io::Result<()> {
     let application = web::Data::new(Application::connect().await.map_err(io::Error::other)?);
     let pool = application.indexer.store.pool.clone();
     let browser = web::Data::new(BrowserConfig::from_env().map_err(io::Error::other)?);
+    let host = std::env::var("APP_HOST").unwrap_or_else(|_| "0.0.0.0".into());
     let port: u16 = std::env::var("APP_PORT")
         .unwrap_or_else(|_| "3001".into())
         .parse()
@@ -50,11 +51,11 @@ async fn run() -> io::Result<()> {
     })
     .shutdown_signal(shutdown)
     .shutdown_timeout(10)
-    .bind(("0.0.0.0", port));
+    .bind((host.as_str(), port));
 
     let result = match server {
         Ok(server) => {
-            info!(host = "0.0.0.0", port, "HTTP server starting");
+            info!(%host, port, "HTTP server starting");
             server.run().await
         }
         Err(error) => Err(error),
