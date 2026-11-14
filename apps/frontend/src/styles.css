@@ -2923,7 +2923,7 @@ main:focus {
 .task-title-text {
   display: inline-block;
   min-width: 0;
-  max-width: 550px;
+  max-width: min(100%, 550px);
   vertical-align: bottom;
   white-space: nowrap;
   overflow: hidden;
@@ -2931,6 +2931,6 @@ main:focus {
 }
 @media (max-width: 560px) {
   .task-title-text {
-    max-width: 190px;
+    max-width: min(100%, 190px);
   }
 }
