@@ -65,18 +65,22 @@ async fn browser_identity_and_finalized_project_flow() -> Result<()> {
     let manager = manager_active.clone();
     let key_active = Arc::new(AtomicBool::new(true));
     let access = key_active.clone();
+    let coordinator_control_pending = Arc::new(AtomicBool::new(true));
+    let control_pending = coordinator_control_pending.clone();
     let listener = TcpListener::bind("127.0.0.1:0")?;
     let rpc_url = format!("http://{}", listener.local_addr()?);
     let server = HttpServer::new(move || {
         let genesis = expected_genesis.clone();
         let manager = manager.clone();
         let access = access.clone();
+        let control_pending = control_pending.clone();
         App::new().route(
             "/",
             web::post().to(move |input: web::Json<Value>| {
                 let genesis = genesis.clone();
                 let manager = manager.clone();
                 let access = access.clone();
+                let control_pending = control_pending.clone();
                 async move {
                     let value = match input["method"].as_str().unwrap() {
                         "status" => json!({"chain_id":"test-near"}),
@@ -98,7 +102,22 @@ async fn browser_identity_and_finalized_project_flow() -> Result<()> {
                                 }
                                 json!({"block_hash":hash,"block_height":10,"permission":"FullAccess"})
                             } else {
-                                let state=json!({
+                                assert_eq!(input["params"]["block_id"], hash);
+                                let state = match input["params"]["method_name"].as_str().unwrap() {
+                                    "get_domain" => json!({
+                                        "domain":number_word(3), "chain":"near", "vault":"vault-near",
+                                        "asset":"usdc-near", "program":null, "owner_identity":number_word(1),
+                                        "owner_recipient":number_word(1), "sequence":1,
+                                        "free":100, "held":0, "pending_reserves":0, "available":100,
+                                    }),
+                                    "get_task" => {
+                                        let args:Value=serde_json::from_slice(&STANDARD.decode(input["params"]["args_base64"].as_str().unwrap()).unwrap()).unwrap();
+                                        assert_eq!(args,json!({"domain":number_word(3),"task":number_word(0)}));
+                                        json!({"state":0,"paused":true,"started":true,"available":10,
+                                            "issued":20,"pending_outflow":0,"live_request":null,
+                                            "control":control_pending.load(Ordering::SeqCst).then(||number_word(7))})
+                                    }
+                                    "get_state" => json!({
                                     "owner_id": "owner.near",
                                     "authority_id": if manager.load(Ordering::SeqCst){"authority.near"}else{"replacement.near"},
                                     "project_id": number_word(10),
@@ -112,7 +131,9 @@ async fn browser_identity_and_finalized_project_flow() -> Result<()> {
                                     "next_command": 1,
                                     "next_invoice": 2,
                                     "retry_limit": 3,
-                                });
+                                    }),
+                                    _ => panic!("Unexpected coordinator view"),
+                                };
                                 json!({"block_hash":hash,"block_height":10,"result":serde_json::to_vec(&state).unwrap()})
                             }
                         },
@@ -605,6 +626,33 @@ async fn browser_identity_and_finalized_project_flow() -> Result<()> {
             Some(&public_key),
         )
         .await?;
+
+    // Local reclaim may be visible before the coordinator retires its control.
+    // Reject the next action before asking the manager to sign a doomed call.
+    for (pending, expected) in [
+        (true, StatusCode::UNPROCESSABLE_ENTITY),
+        (false, StatusCode::OK),
+    ] {
+        coordinator_control_pending.store(pending, Ordering::SeqCst);
+        let request = test::TestRequest::post()
+            .uri(&format!("/api/projects/{key}/actions/coordinator"))
+            .cookie(stranger_cookie.clone())
+            .insert_header((header::ORIGIN, "https://app.example.com"))
+            .set_json(json!({"actor":"authority.near","storage_deposit":"0",
+                "action":{"action":"restore","chain":"near","task":number_word(0),
+                    "amount":"10","purpose":number_word(1),"expires":2000000000u64}}))
+            .to_request();
+        let response = test::call_service(&app, request).await;
+        assert_eq!(response.status(), expected);
+        let body: Value = test::read_body_json(response).await;
+        if pending {
+            assert_eq!(body["error"]["code"], "action_rejected");
+            assert!(body.get("transactions").is_none());
+        } else {
+            assert_eq!(body["chain"], "near");
+            assert_eq!(body["transactions"][0]["method_name"], "restore");
+        }
+    }
 
     // A handle exposes only proven wallets on this deployment, without giving
     // the person looking it up any additional on-chain permission.

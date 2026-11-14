@@ -11,6 +11,23 @@ use apodect_solana::bridge::action;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
+// Stable task-state values in the coordinator's get_task wire view.
+const TASK_ACTIVE: u64 = 0;
+const TASK_OUT_OF_BUDGET: u64 = 2;
+const TASK_COMPLETED: u64 = 3;
+
+#[derive(Deserialize)]
+pub(super) struct CoordinatorTask {
+    state: u64,
+    paused: bool,
+    started: bool,
+    available: u64,
+    issued: u64,
+    pending_outflow: u64,
+    live_request: Option<String>,
+    control: Option<String>,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(tag = "action", rename_all = "snake_case")]
 pub enum CoordinatorAction {
@@ -150,6 +167,51 @@ impl CoordinatorAction {
             | Self::WithdrawFree { chain, .. } => Some(*chain),
             _ => None,
         }
+    }
+
+    pub(super) fn task(&self) -> Option<&str> {
+        match self {
+            Self::Control { task, .. }
+            | Self::Restore { task, .. }
+            | Self::OutOfBudget { task, .. } => Some(task),
+            _ => None,
+        }
+    }
+
+    pub(super) fn validate_task(&self, task: &CoordinatorTask) -> Result<()> {
+        ensure!(task.state < TASK_COMPLETED, "Coordinator task is terminal");
+        ensure!(
+            task.control.is_none(),
+            "Coordinator task control is awaiting confirmation"
+        );
+        let permitted = match self {
+            Self::Control { control, .. } => match control {
+                TaskControl::Pause => !task.paused,
+                TaskControl::Reclaim { amount } => {
+                    task.paused && *amount > 0 && task.available >= *amount
+                }
+                TaskControl::Continue => {
+                    task.state == TASK_ACTIVE
+                        && task.paused
+                        && task.available > 0
+                        && task.pending_outflow == 0
+                }
+                TaskControl::Cancel => !task.started && task.pending_outflow == 0,
+            },
+            Self::Restore { .. } => {
+                task.state == TASK_ACTIVE
+                    && task.paused
+                    && task.issued > 0
+                    && task.live_request.is_none()
+            }
+            Self::OutOfBudget { .. } => task.state != TASK_OUT_OF_BUDGET,
+            _ => unreachable!("Only task-control actions read the coordinator task"),
+        };
+        ensure!(
+            permitted,
+            "Coordinator task state does not permit this control"
+        );
+        Ok(())
     }
 
     pub(super) fn call(self, project: &ProjectConfig) -> Result<(&'static str, Value)> {

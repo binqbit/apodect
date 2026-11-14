@@ -77,6 +77,11 @@ The RPC bridge accepts only the native methods needed by wallet signing and
 confirmation, targets configured nodes, and keeps provider credentials private.
 Worker retries remain operator actions rather than public API endpoints.
 
+Task-control preparation checks the coordinator's task state at the same finalized
+block as its role and domain. An earlier control must be confirmed before preparing
+the next one, even when a local vault projection has already updated. Contracts
+recheck the state when signed actions execute.
+
 The browser records transaction identity before broadcasting signed bytes. A
 wallet that submits internally may lose its response before returning a hash;
 that attempt remains unresolved until a matching transaction is found. Recovery

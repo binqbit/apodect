@@ -20,7 +20,7 @@ use crate::{
 use alloy_primitives::{Address, B256, U256};
 use anchor_lang::prelude::Pubkey;
 use anyhow::{Context, Result, ensure};
-use coordinator::{Role, validate_domain};
+use coordinator::{CoordinatorTask, Role, validate_domain};
 use local::{
     ethereum_action, ethereum_approval, near_action, near_call, near_token_registration,
     solana_action, solana_associated_account, solana_create_associated_account,
@@ -174,6 +174,21 @@ impl<'a> Actions<'a> {
                 .coordinator_domain(&project.coordinator, &domain.domain, &block)
                 .await?;
             validate_domain(chain, domain, &registered)?;
+            if let Some(task) = action.task() {
+                let observed: Option<CoordinatorTask> = self
+                    .indexer
+                    .near
+                    .view(
+                        &project.coordinator,
+                        "get_task",
+                        &serde_json::json!({"domain": domain.domain, "task": canonical(task)?}),
+                        &block,
+                    )
+                    .await?;
+                action.validate_task(
+                    &observed.context("Coordinator has not observed this task yet")?,
+                )?;
+            }
         }
         let (method, args) = action.call(project)?;
         Ok(self.near_intent(
