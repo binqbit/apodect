@@ -1,6 +1,7 @@
 {
   "name": "apodect",
   "version": "0.1.0",
+  "license": "MIT",
   "private": true,
   "packageManager": "pnpm@12.18.0",
   "engines": {

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: UNLICENSED
+// SPDX-License-Identifier: MIT
 pragma solidity 0.8.33;
 
 /// @notice The fixed cross-chain wire and local custody records used by coordinated Projects.
