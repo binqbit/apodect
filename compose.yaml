@@ -25,6 +25,8 @@ services:
     image: apache/kafka:4.4.0@sha256:833b867a9585a141da455dc2b57431c65cbccb27f11c91f694444cca9f777e0f
     init: true
     environment:
+      # The image's CDS archive is incompatible with its default JMX module.
+      KAFKA_OPTS: "-Xshare:off"
       CLUSTER_ID: f-ozFaA-QlmAoV_Uev2BTg
       KAFKA_NODE_ID: "1"
       KAFKA_PROCESS_ROLES: broker,controller
