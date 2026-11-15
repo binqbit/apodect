@@ -71,19 +71,23 @@ quote/status APIs. It does not read the application's database.
    into the program and backend: select a program keypair, update `declare_id!`
    and `Anchor.toml`, then build both from that source. Choose the upgrade authority
    explicitly and retain release artifacts and deployment transactions.
-3. Initialize the coordinator with the signing and Read MPC keys above. Before
-   binding fresh vaults, derive their domains from the completed identities:
+3. Initialize the coordinator with the signing and Read MPC keys above. Prepare
+   `.env.live` and secrets as described in the
+   [live host guide](application-development.md#live-host). Build the backend image,
+   then derive domains from the completed identities before binding fresh vaults:
 
    ```sh
-   APODECT_CONFIG=.secrets/deployment.json apodect --deployment-domains
+   docker compose --env-file .env.live -f compose.yaml -f compose.live.yaml build backend
+   docker compose --env-file .env.live -f compose.yaml -f compose.live.yaml \
+     run --rm --no-deps backend apodect --deployment-domains
    ```
 
    Use the returned values in the configuration, coordinator registration and vault
    bindings. Domain placeholders may remain until this step; derivation needs no
    RPC, database or signing keys. Incorrect immutable bindings require a new
-   deployment.
-4. Provision RPC access and dedicated gas payers as described below, then run
-   `apodect --check-deployment` with `APODECT_CONFIG` set. It reads bindings, keys,
+   deployment. Finish registration and binding before admission or application startup.
+4. Provision RPC access and dedicated gas payers as described below, then run the
+   live guide's `--check-deployment` command. It reads bindings, keys,
    network identities and provider capabilities without loading relay credentials,
    using the database or submitting transactions. The
    [live host guide](application-development.md#live-host) covers Compose and secrets,

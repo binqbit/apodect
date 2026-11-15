@@ -240,7 +240,8 @@ test -e .env.live || cp .env.live.example .env.live
 ```
 
 Set its hostname, Solana cluster, deployment configuration path, NEAR relayer
-account and three gas-payer credential paths. Prepare the existing public
+account and three gas-payer credential paths. The comments in `.env.live.example`
+specify the required key file formats. Prepare the existing public
 contracts and deployment JSON using [provider setup](cross-chain-providers.md#public-deployment-setup).
 Only the worker receives gas-payer keys; user wallets retain owner/manager/agent
 keys. Keep credential files readable by UID 1000 inside a private directory.
@@ -283,13 +284,17 @@ services:
   backend:
     secrets:
       - liquidity_api_key
+  worker:
+    secrets:
+      - liquidity_api_key
 secrets:
   liquidity_api_key:
     file: ./.secrets/liquidity-api-key
 ```
 
 Append `-f .secrets/compose.liquidity.yaml` to live Compose commands. The backend
-requests and persists quotes; the worker uses those quotes without this key.
+requests and persists quotes; both backend and worker need the key for public
+provider admission during startup.
 `APODECT_FEE_WARNING_BPS` controls the soft fee warning (default `500`, or 5%);
 it does not block an affordable plan or reduce the agent's principal.
 
