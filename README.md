@@ -10,8 +10,10 @@ support the next approved task on another network.
 
 ## Run locally
 
-Follow the [application setup](docs/application-development.md#local-startup) to create
-the two database secret files, then run:
+Start with the [local setup and first task](docs/application-development.md#local-startup):
+prerequisites, database secrets, test wallets and a complete request-to-return flow.
+Use an x86-64 Linux Docker host with `io_uring` enabled and Compose 2.24.4+.
+After creating the secrets, start the stack:
 
 ```sh
 docker compose up --build --wait
@@ -19,8 +21,10 @@ docker compose up --build --wait
 
 Open <http://localhost:3000>. Compose starts the web app, Rust backend and worker,
 PostgreSQL, Kafka, and all three local blockchains with deployed contracts. Local
-MPC and liquidity simulators support the cross-chain flow. Public-provider
-execution requires separate [integration validation](docs/cross-chain-providers.md).
+MPC and liquidity simulators support the cross-chain flow. A project, test wallets
+and initial liquidity are created automatically; no public RPC accounts or real
+funds are needed. Public-provider execution requires separate
+[integration validation](docs/cross-chain-providers.md).
 
 ## Read next
 

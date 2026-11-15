@@ -8,7 +8,8 @@
 
 ## Run and develop
 
-- [Application setup](application-development.md): default Compose, local wallets, live host, persistence and backups.
+- [Local setup and first task](application-development.md#local-startup): start Compose, sign in as each role and complete a task.
+- [Live host](application-development.md#live-host): public deployment configuration, secrets and backups.
 - [Backend services](backend.md): profiles, browser API, operational CLI, workers and configuration.
 - [Native contract development](local-development.md): host prerequisites, checks and chain lifecycle.
 - [Cross-chain workflows](cross-chain-development.md): native harness commands and fault scenarios.
