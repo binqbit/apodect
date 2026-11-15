@@ -41,3 +41,5 @@ but cannot automatically recover funds already withdrawn to an independent walle
 
 Apodect is licensed under the [MIT License](LICENSE). Third-party components retain
 their own licenses, including the [Moby seccomp profile](infra/localnet-seccomp.LICENSE).
+
+The author's other NEAR Hackathon project: [Gnorix](https://github.com/binqbit/gnorix).
