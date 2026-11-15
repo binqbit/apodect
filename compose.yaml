@@ -126,6 +126,8 @@ services:
       target: development
     command: ["apodect-worker"]
     init: true
+    # A lost PostgreSQL advisory lock requires a new worker process.
+    restart: on-failure
     stop_grace_period: 40s
     environment:
       PGHOST: postgres

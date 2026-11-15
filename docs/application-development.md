@@ -65,6 +65,9 @@ Normal shutdown preserves state. An interrupted first Ethereum or Solana deploym
 reports an incomplete bootstrap; it does not guess which transactions succeeded.
 For disposable state, use the explicit [chain reset](#persistent-data).
 
+If PostgreSQL restarts, the worker exits after losing its relayer lock; Compose
+restarts it to acquire a new lock before resuming synchronization.
+
 ## Sign in with local wallets
 
 Open http://localhost:3000. The web manages Projects already registered in the
